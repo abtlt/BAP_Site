@@ -3,7 +3,7 @@
 import { eq, and, or, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { randomUUID } from "node:crypto";
-import { db, schema } from "@/db";
+import { getDb, schema } from "@/db";
 import { getCurrentUser } from "@/lib/session";
 import { isAdmin, isBlockedByAdmin, ACTIVE_STATUSES } from "@/lib/permissions";
 import { addDays, DEADLINE_CYCLE_DAYS } from "@/lib/dates";
@@ -21,6 +21,7 @@ function viewerName(viewer: { rpFirstName: string; rpLastName: string; robloxUse
 }
 
 async function findActiveArticleFor(journalistId: string) {
+  const db = getDb();
   const [article] = await db
     .select()
     .from(schema.articles)
@@ -46,6 +47,7 @@ export async function createArticle(formData: FormData) {
   const secondJournalistId = String(formData.get("secondJournalistId") || "") || null;
   const hasPreassigned = !!mainJournalistId;
 
+  const db = getDb();
   const now = new Date().toISOString();
   await db.insert(schema.articles).values({
     id: randomUUID(),
@@ -82,6 +84,7 @@ export async function takeArticle(formData: FormData) {
     );
   }
 
+  const db = getDb();
   const [article] = await db.select().from(schema.articles).where(eq(schema.articles.id, articleId)).limit(1);
   if (!article) throw new Error("Article introuvable.");
 
@@ -104,6 +107,7 @@ export async function takeArticle(formData: FormData) {
 }
 
 async function assertCanEdit(articleId: string, viewerId: string) {
+  const db = getDb();
   const [article] = await db.select().from(schema.articles).where(eq(schema.articles.id, articleId)).limit(1);
   if (!article) throw new Error("Article introuvable.");
 
@@ -125,6 +129,7 @@ export async function saveDraft(formData: FormData) {
   const content = String(formData.get("content") || "");
   await assertCanEdit(articleId, viewer.robloxId);
 
+  const db = getDb();
   await db.update(schema.articles).set({ content }).where(eq(schema.articles.id, articleId));
   revalidatePath(`/redaction/${articleId}`);
 }
@@ -137,6 +142,7 @@ export async function submitForValidation(formData: FormData) {
   const content = String(formData.get("content") || "");
   await assertCanEdit(articleId, viewer.robloxId);
 
+  const db = getDb();
   await db
     .update(schema.articles)
     .set({ content, status: "en_validation" })
@@ -158,6 +164,7 @@ export async function uploadArticleFile(formData: FormData) {
   if (!(file instanceof File) || file.size === 0) throw new Error("Aucun fichier sélectionné.");
 
   const saved = await saveUploadedFile(articleId, file);
+  const db = getDb();
   await db.insert(schema.articleFiles).values({
     articleId,
     filename: saved.filename,
@@ -175,6 +182,7 @@ export async function requestCancel(formData: FormData) {
   const articleId = String(formData.get("articleId"));
   const reason = String(formData.get("reason") || "").trim() || "(aucune raison précisée)";
 
+  const db = getDb();
   const [article] = await db.select().from(schema.articles).where(eq(schema.articles.id, articleId)).limit(1);
   if (!article) throw new Error("Article introuvable.");
   const isParticipant = article.mainJournalistId === viewer.robloxId || article.secondJournalistId === viewer.robloxId;
@@ -205,6 +213,7 @@ export async function approveCancellation(formData: FormData) {
   const viewer = await requireAdmin();
   const articleId = String(formData.get("articleId"));
 
+  const db = getDb();
   const [article] = await db.select().from(schema.articles).where(eq(schema.articles.id, articleId)).limit(1);
   if (!article || !article.cancelRequestJournalistId) throw new Error("Aucune demande d'annulation en attente.");
 
@@ -245,6 +254,7 @@ export async function declineCancellation(formData: FormData) {
   await requireAdmin();
   const articleId = String(formData.get("articleId"));
 
+  const db = getDb();
   await db
     .update(schema.articles)
     .set({ cancelRequestJournalistId: null, cancelRequestReason: null, cancelRequestDate: null })
@@ -260,6 +270,7 @@ export async function validateArticle(formData: FormData) {
   const articleId = String(formData.get("articleId"));
   const comment = String(formData.get("comment") || "").trim();
 
+  const db = getDb();
   const [article] = await db.select().from(schema.articles).where(eq(schema.articles.id, articleId)).limit(1);
   if (!article) throw new Error("Article introuvable.");
 
@@ -301,6 +312,7 @@ export async function rejectArticle(formData: FormData) {
   const comment = String(formData.get("comment") || "").trim();
   if (!comment) throw new Error("Merci d'ajouter un commentaire expliquant les modifications à apporter.");
 
+  const db = getDb();
   await db.insert(schema.articleComments).values({
     articleId,
     authorName: viewerName(viewer),
@@ -324,6 +336,7 @@ export async function deleteArticle(formData: FormData) {
   await requireAdmin();
   const articleId = String(formData.get("articleId"));
 
+  const db = getDb();
   const [article] = await db.select().from(schema.articles).where(eq(schema.articles.id, articleId)).limit(1);
   if (!article) throw new Error("Article introuvable.");
 

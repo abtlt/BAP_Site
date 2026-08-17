@@ -1,10 +1,8 @@
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 
 // ===== Bureau Auxiliaire de Presse — Schéma de base de données =====
-// SQLite (via better-sqlite3) pour le développement / auto-hébergement.
-// Pour un déploiement serverless (Vercel, etc.), remplacez le driver
-// SQLite par un driver Postgres (drizzle-orm supporte les deux avec une
-// syntaxe très proche) car le système de fichiers y est éphémère.
+// SQLite via Cloudflare D1 (drizzle-orm/d1). Le dialecte SQLite de D1 est
+// compatible avec ce schéma sans modification.
 
 export const users = sqliteTable("users", {
   // On utilise l'ID Roblox (numérique, stable, ne change jamais même si

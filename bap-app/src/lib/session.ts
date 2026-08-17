@@ -2,7 +2,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
 import { eq } from "drizzle-orm";
-import { db, schema } from "@/db";
+import { getDb, schema } from "@/db";
 
 const SESSION_COOKIE = "bap_session";
 const SESSION_DURATION_SECONDS = 60 * 60 * 24 * 30; // 30 jours
@@ -56,6 +56,7 @@ export async function getSessionRobloxId(): Promise<string | null> {
 export async function getCurrentUser() {
   const robloxId = await getSessionRobloxId();
   if (!robloxId) return null;
+  const db = getDb();
   const [user] = await db.select().from(schema.users).where(eq(schema.users.robloxId, robloxId)).limit(1);
   return user ?? null;
 }

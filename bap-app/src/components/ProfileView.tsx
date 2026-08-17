@@ -1,5 +1,5 @@
 import { desc, eq } from "drizzle-orm";
-import { db, schema } from "@/db";
+import { getDb, schema } from "@/db";
 import { Shell } from "@/components/Shell";
 import { DeadlineRing } from "@/components/DeadlineRing";
 import { deadlineInfo, fmtDate, fmtDateShort, seniority, lastActivityLabel } from "@/lib/dates";
@@ -25,6 +25,7 @@ export async function ProfileView({ viewer, target }: { viewer: UserRow; target:
   const roleClass = target.role === "redac_chef" ? "redac-chef" : target.role;
   const displayName = `${target.rpFirstName} ${target.rpLastName}`.trim() || target.robloxUsername;
 
+  const db = getDb();
   const freezeEntries = await db
     .select()
     .from(schema.freezeEntries)

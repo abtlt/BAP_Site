@@ -1,0 +1,44 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "main": ".open-next/worker.js",
+  "name": "bap-app",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": [
+    // Active l'API Node.js (nécessaire pour Next.js / better-auth-like libs)
+    "nodejs_compat",
+    "global_fetch_strictly_public"
+  ],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "bap-app"
+    }
+  ],
+  // Base de données Cloudflare D1 — remplacez "database_id" par l'ID
+  // renvoyé par `npx wrangler d1 create bap-db` (voir README).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "bap-db",
+      "database_id": "REMPLACEZ_PAR_VOTRE_DATABASE_ID",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  // Bucket R2 pour les fichiers joints aux articles — remplacez le nom
+  // par celui créé avec `npx wrangler r2 bucket create bap-uploads`
+  // (voir README).
+  "r2_buckets": [
+    {
+      "binding": "UPLOADS",
+      "bucket_name": "bap-uploads"
+    }
+  ]
+  // Pas de binding "images" : l'optimisation d'image Next.js est
+  // désactivée (images.unoptimized dans next.config.ts) pour éviter la
+  // dépendance à Cloudflare Images, inutile pour ce site (logo statique +
+  // avatars Roblox déjà optimisés).
+}

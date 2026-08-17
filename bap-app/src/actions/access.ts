@@ -2,7 +2,7 @@
 
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { db, schema } from "@/db";
+import { getDb, schema } from "@/db";
 import { getCurrentUser } from "@/lib/session";
 import { isAdmin } from "@/lib/permissions";
 
@@ -33,6 +33,7 @@ export async function addAuthorizedUser(formData: FormData) {
 
   const viewerName = `${viewer.rpFirstName} ${viewer.rpLastName}`.trim() || viewer.robloxUsername;
 
+  const db = getDb();
   await db.insert(schema.authorizedRobloxUsers).values({
     robloxId: robloxIdRaw || null,
     robloxUsername: robloxUsernameRaw || null,
@@ -47,6 +48,7 @@ export async function addAuthorizedUser(formData: FormData) {
 export async function removeAuthorizedUser(formData: FormData) {
   await requireAdmin();
   const id = parseInt(String(formData.get("id")), 10);
+  const db = getDb();
   await db.delete(schema.authorizedRobloxUsers).where(eq(schema.authorizedRobloxUsers.id, id));
   revalidatePath("/admin");
 }

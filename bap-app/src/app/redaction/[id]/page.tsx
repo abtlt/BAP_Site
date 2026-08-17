@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
-import { db, schema } from "@/db";
+import { getDb, schema } from "@/db";
 import { getCurrentUser } from "@/lib/session";
 import { Shell } from "@/components/Shell";
 import { isAdmin, isBlockedByAdmin, statusLabels } from "@/lib/permissions";
@@ -13,6 +13,7 @@ export default async function RedactionPage({ params }: { params: Promise<{ id: 
   if (!user) redirect("/login");
 
   const { id } = await params;
+  const db = getDb();
   const [article] = await db.select().from(schema.articles).where(eq(schema.articles.id, id)).limit(1);
   if (!article) notFound();
 

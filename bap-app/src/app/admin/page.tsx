@@ -1,6 +1,6 @@
 import { desc } from "drizzle-orm";
 import { redirect } from "next/navigation";
-import { db, schema } from "@/db";
+import { getDb, schema } from "@/db";
 import { getCurrentUser } from "@/lib/session";
 import { Shell } from "@/components/Shell";
 import { ACTIVE_STATUSES, GRADES, isAdmin, isBlockedByAdmin, isRedacChef, roleLabels, statusLabels } from "@/lib/permissions";
@@ -28,6 +28,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   const activeTab = (TABS.find((t) => t.key === tabParam)?.key ?? "overview") as (typeof TABS)[number]["key"];
   const isRedacChefViewer = isRedacChef(viewer.role as "journaliste" | "admin" | "redac_chef");
 
+  const db = getDb();
   const [allArticles, journalists, authorizedUsers] = await Promise.all([
     db.select().from(schema.articles),
     db.select().from(schema.users),

@@ -2,7 +2,7 @@
 
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { db, schema } from "@/db";
+import { getDb, schema } from "@/db";
 import { getCurrentUser } from "@/lib/session";
 import { isAdmin, isRedacChef, isBlockedByAdmin } from "@/lib/permissions";
 import { addDays } from "@/lib/dates";
@@ -29,6 +29,7 @@ export async function placeFreeze(formData: FormData) {
   const viewer = await requireViewer();
   const amount = Math.max(1, parseInt(String(formData.get("amount") || "1"), 10));
 
+  const db = getDb();
   const [user] = await db.select().from(schema.users).where(eq(schema.users.robloxId, viewer.robloxId)).limit(1);
   if (!user) throw new Error("Utilisateur introuvable.");
   if (isBlockedByAdmin(user)) throw new Error("Indisponible pendant un freeze administrateur.");
@@ -63,6 +64,7 @@ export async function updateAdminInfo(formData: FormData) {
   const grade = String(formData.get("grade") || "");
   const arrivalDate = String(formData.get("arrivalDate") || "");
 
+  const db = getDb();
   await db
     .update(schema.users)
     .set({ rpFirstName, rpLastName, grade, arrivalDate })
@@ -83,6 +85,7 @@ export async function creditBonusDays(formData: FormData) {
   const amount = Math.max(1, parseInt(String(formData.get("amount") || "1"), 10));
   const reason = String(formData.get("reason") || "").trim();
 
+  const db = getDb();
   const [user] = await db.select().from(schema.users).where(eq(schema.users.robloxId, userId)).limit(1);
   if (!user) throw new Error("Journaliste introuvable.");
 
@@ -113,6 +116,7 @@ export async function placeAdminFreeze(formData: FormData) {
   const reason = String(formData.get("reason") || "").trim();
   if (!reason) throw new Error("Merci d'indiquer une raison pour ce freeze administrateur.");
 
+  const db = getDb();
   const now = new Date().toISOString();
   await db
     .update(schema.users)
@@ -143,6 +147,7 @@ export async function liftAdminFreeze(formData: FormData) {
   if (!isAdmin(viewer.role as "journaliste" | "admin" | "redac_chef")) throw new Error("Réservé aux administrateurs.");
 
   const userId = String(formData.get("userId"));
+  const db = getDb();
   const [user] = await db.select().from(schema.users).where(eq(schema.users.robloxId, userId)).limit(1);
   if (!user || !user.adminFreezeActive || !user.adminFreezePlacedDate) throw new Error("Aucun freeze administrateur actif.");
 
@@ -182,6 +187,7 @@ export async function removeDays(formData: FormData) {
   const amount = Math.max(1, parseInt(String(formData.get("amount") || "1"), 10));
   const reason = String(formData.get("reason") || "").trim();
 
+  const db = getDb();
   const [user] = await db.select().from(schema.users).where(eq(schema.users.robloxId, userId)).limit(1);
   if (!user) throw new Error("Journaliste introuvable.");
 
@@ -210,6 +216,7 @@ export async function deleteHistoryLog(formData: FormData) {
   const id = parseInt(String(formData.get("id")), 10);
   const userId = String(formData.get("userId"));
 
+  const db = getDb();
   await db.delete(schema.historyLogs).where(eq(schema.historyLogs.id, id));
 
   revalidatePath(`/profil/${userId}`);
@@ -223,6 +230,7 @@ export async function deleteFreezeEntry(formData: FormData) {
   const id = parseInt(String(formData.get("id")), 10);
   const userId = String(formData.get("userId"));
 
+  const db = getDb();
   await db.delete(schema.freezeEntries).where(eq(schema.freezeEntries.id, id));
 
   revalidatePath(`/profil/${userId}`);
@@ -240,6 +248,7 @@ export async function toggleAdminRole(formData: FormData) {
   const makeAdmin = String(formData.get("makeAdmin")) === "true";
   if (userId === viewer.robloxId) throw new Error("Vous ne pouvez pas modifier vos propres droits.");
 
+  const db = getDb();
   await db
     .update(schema.users)
     .set({ role: makeAdmin ? "admin" : "journaliste" })

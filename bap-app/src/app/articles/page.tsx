@@ -1,6 +1,6 @@
 import { and, eq, ne, or } from "drizzle-orm";
 import { redirect } from "next/navigation";
-import { db, schema } from "@/db";
+import { getDb, schema } from "@/db";
 import { getCurrentUser } from "@/lib/session";
 import { Shell } from "@/components/Shell";
 import { ACTIVE_STATUSES, isAdmin, isBlockedByAdmin, statusLabels } from "@/lib/permissions";
@@ -11,6 +11,7 @@ export default async function ArticlesPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
+  const db = getDb();
   const [mine, available, journalists] = await Promise.all([
     db
       .select()

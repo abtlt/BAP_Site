@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { eq, sql } from "drizzle-orm";
-import { db, schema } from "@/db";
+import { getDb, schema } from "@/db";
 import { exchangeCodeForToken, fetchUserInfo, OAUTH_STATE_COOKIE, OAUTH_VERIFIER_COOKIE } from "@/lib/roblox";
 import { createSession } from "@/lib/session";
 import { DEADLINE_CYCLE_DAYS, addDays } from "@/lib/dates";
@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
 
   // L'utilisateur a-t-il déjà un compte ? (première connexion validée
   // par le passé, ou compte créé manuellement)
+  const db = getDb();
   const [existingUser] = await db.select().from(schema.users).where(eq(schema.users.robloxId, robloxId)).limit(1);
 
   if (!existingUser) {
