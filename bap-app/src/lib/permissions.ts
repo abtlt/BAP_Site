@@ -31,4 +31,11 @@ export const statusLabels: Record<string, { label: string; cls: string }> = {
   valide: { label: "Validé", cls: "tag-green" },
 };
 
-export const GRADES = ["Journaliste stagiaire", "Journaliste", "Journaliste senior", "Rédacteur en chef"];
+export const GRADES = [
+  "Analyste",
+  "Journaliste Junior",
+  "Journaliste",
+  "Journaliste Senior",
+  "Adjoint au Rédacteur en Chef",
+  "Rédacteur en Chef",
+];

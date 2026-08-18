@@ -13,7 +13,7 @@ export const users = sqliteTable("users", {
 
   rpFirstName: text("rp_first_name").notNull().default(""),
   rpLastName: text("rp_last_name").notNull().default(""),
-  grade: text("grade").notNull().default("Journaliste stagiaire"),
+  grade: text("grade").notNull().default("Analyste"),
 
   // 'journaliste' | 'admin' | 'redac_chef'
   role: text("role").notNull().default("journaliste"),

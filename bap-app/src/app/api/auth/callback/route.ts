@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
       robloxAvatarUrl,
       rpFirstName: "",
       rpLastName: "",
-      grade: isFirstEverAccount ? "Rédacteur en chef" : "Journaliste stagiaire",
+      grade: isFirstEverAccount ? "Rédacteur en Chef" : "Analyste",
       role: isFirstEverAccount ? "redac_chef" : "journaliste",
       arrivalDate: now,
       lastActivity: now,
