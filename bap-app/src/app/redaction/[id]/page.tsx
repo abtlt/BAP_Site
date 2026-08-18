@@ -10,10 +10,12 @@ import {
   saveDraft,
   submitForValidation,
   uploadArticleFile,
+  deleteArticleFile,
   requestCancel,
   acceptSecondRequest,
   declineSecondRequest,
 } from "@/actions/articles";
+import { ConfirmSubmitButton } from "@/components/ConfirmSubmitButton";
 
 export default async function RedactionPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
@@ -130,12 +132,27 @@ export default async function RedactionPage({ params }: { params: Promise<{ id: 
 
         <div className="card">
           <div className="card-title">Fichiers joints</div>
-          <div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {files.length ? (
               files.map((f) => (
-                <a key={f.id} className="file-chip" href={f.url} target="_blank" rel="noreferrer">
-                  📎 {f.filename} · {formatFileSize(f.size)}
-                </a>
+                <span key={f.id} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <a className="file-chip" href={f.url} target="_blank" rel="noreferrer">
+                    📎 {f.filename} · {formatFileSize(f.size)}
+                  </a>
+                  {canEdit || isAdminViewer ? (
+                    <form action={deleteArticleFile}>
+                      <input type="hidden" name="articleId" value={article.id} />
+                      <input type="hidden" name="fileId" value={f.id} />
+                      <ConfirmSubmitButton
+                        className="btn btn-ghost btn-sm"
+                        style={{ padding: "2px 6px", fontSize: 11 }}
+                        message={`Retirer le fichier « ${f.filename} » ?`}
+                      >
+                        ✕
+                      </ConfirmSubmitButton>
+                    </form>
+                  ) : null}
+                </span>
               ))
             ) : (
               <p style={{ color: "var(--text-faint)", fontSize: "12.5px" }}>Aucun fichier pour le moment.</p>

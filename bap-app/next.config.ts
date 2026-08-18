@@ -7,6 +7,14 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  // Next.js limite par défaut le corps d'une Server Action à 1 Mo (pour
+  // éviter les abus). C'est trop petit pour un fichier joint (captures
+  // d'écran Roblox notamment) : on relève la limite à 15 Mo.
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "15mb",
+    },
+  },
 };
 
 export default nextConfig;

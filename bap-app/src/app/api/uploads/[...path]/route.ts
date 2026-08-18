@@ -7,7 +7,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pat
   const { path } = await params;
   const key = path.join("/");
 
-  const { env } = getCloudflareContext();
+  const { env } = await getCloudflareContext({ async: true });
   const object = await env.UPLOADS.get(key);
   if (!object) {
     return new Response("Fichier introuvable.", { status: 404 });

@@ -7,7 +7,7 @@ import { getDb, schema } from "@/db";
 import { getCurrentUser } from "@/lib/session";
 import { isAdmin, isBlockedByAdmin, ACTIVE_STATUSES } from "@/lib/permissions";
 import { addDays, DEADLINE_CYCLE_DAYS } from "@/lib/dates";
-import { saveUploadedFile, deleteArticleUploads } from "@/lib/uploads";
+import { saveUploadedFile, deleteArticleUploads, deleteUploadedFile } from "@/lib/uploads";
 
 async function requireViewer() {
   const viewer = await getCurrentUser();
@@ -239,6 +239,29 @@ export async function uploadArticleFile(formData: FormData) {
     size: saved.size,
     uploadedAt: new Date().toISOString(),
   });
+
+  revalidatePath(`/redaction/${articleId}`);
+}
+
+// Retire un fichier joint — par le journaliste tant qu'il peut encore
+// modifier l'article, ou par un administrateur à tout moment.
+export async function deleteArticleFile(formData: FormData) {
+  const viewer = await requireViewer();
+  const articleId = String(formData.get("articleId"));
+  const fileId = parseInt(String(formData.get("fileId")), 10);
+
+  if (!isAdmin(viewer.role as "journaliste" | "admin" | "redac_chef" | "supervision")) {
+    if (isBlockedByAdmin(viewer)) throw new Error("Votre compte est gelé par un administrateur.");
+    await assertCanEdit(articleId, viewer.robloxId);
+  }
+
+  const db = getDb();
+  const [file] = await db.select().from(schema.articleFiles).where(eq(schema.articleFiles.id, fileId)).limit(1);
+  if (!file || file.articleId !== articleId) throw new Error("Fichier introuvable.");
+
+  const key = file.url.replace(/^\/api\/uploads\//, "");
+  await deleteUploadedFile(key);
+  await db.delete(schema.articleFiles).where(eq(schema.articleFiles.id, fileId));
 
   revalidatePath(`/redaction/${articleId}`);
 }
