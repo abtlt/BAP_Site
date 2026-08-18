@@ -3,7 +3,7 @@ import { getDb, schema } from "@/db";
 import { Shell } from "@/components/Shell";
 import { DeadlineRing } from "@/components/DeadlineRing";
 import { deadlineInfo, fmtDate, fmtDateShort, seniority, lastActivityLabel } from "@/lib/dates";
-import { GRADES, isAdmin, isBlockedByAdmin, isRedacChef, roleLabels, type UserRow } from "@/lib/permissions";
+import { GRADES, isAdmin, isBlockedByAdmin, isRedacChef, roleLabels, type Role, type UserRow } from "@/lib/permissions";
 import {
   placeFreeze,
   updateAdminInfo,
@@ -12,6 +12,7 @@ import {
   placeAdminFreeze,
   liftAdminFreeze,
   toggleAdminRole,
+  toggleSupervisionRole,
   deleteHistoryLog,
   deleteFreezeEntry,
 } from "@/actions/journalists";
@@ -19,7 +20,10 @@ import { ConfirmSubmitButton } from "@/components/ConfirmSubmitButton";
 
 export async function ProfileView({ viewer, target }: { viewer: UserRow; target: UserRow }) {
   const isOwn = target.robloxId === viewer.robloxId;
-  const viewerIsAdmin = isAdmin(viewer.role as "journaliste" | "admin" | "redac_chef");
+  const viewerRole = viewer.role as Role;
+  const targetRole = target.role as Role;
+  const viewerIsAdmin = isAdmin(viewerRole);
+  const isTargetImmune = targetRole === "supervision";
   const blocked = isBlockedByAdmin(target);
   const dInfo = deadlineInfo(target.deadlineDate);
   const roleClass = target.role === "redac_chef" ? "redac-chef" : target.role;
@@ -53,7 +57,7 @@ export async function ProfileView({ viewer, target }: { viewer: UserRow; target:
             @{target.robloxUsername} · {target.grade}
           </div>
         </div>
-        <span className={`role-badge ${roleClass}`}>{roleLabels[target.role as "journaliste" | "admin" | "redac_chef"]}</span>
+        <span className={`role-badge ${roleClass}`}>{roleLabels[targetRole]}</span>
       </div>
 
       {blocked ? (
@@ -88,72 +92,78 @@ export async function ProfileView({ viewer, target }: { viewer: UserRow; target:
       <div className="grid grid-2" style={{ marginTop: 16 }}>
         <div className="card">
           <div className="card-title">Deadline actuelle</div>
-          <DeadlineRing remaining={dInfo.remaining} isGreen={dInfo.isGreen} />
-          <div className="divider" />
-          <div className="ui-label" style={{ marginBottom: 8 }}>
-            Jours de freeze disponibles : <b style={{ color: "var(--gold-light)" }}>{target.freezeDays}</b>
-          </div>
-          {isOwn ? (
-            <form action={placeFreeze} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input
-                type="number"
-                name="amount"
-                min={1}
-                max={target.freezeDays}
-                defaultValue={1}
-                disabled={target.freezeDays < 1 || blocked}
-                style={{
-                  width: 70,
-                  background: "var(--panel-2)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 8,
-                  padding: "8px 10px",
-                  color: "var(--text)",
-                }}
-              />
-              <button type="submit" className="btn btn-primary btn-sm" disabled={target.freezeDays < 1 || blocked}>
-                Placer un freeze
-              </button>
-            </form>
+          {isTargetImmune ? (
+            <DeadlineRing remaining={0} isGreen={true} immune />
           ) : (
-            <p style={{ fontSize: 12, color: "var(--text-faint)" }}>Seul le journaliste concerné peut placer ses jours de freeze.</p>
-          )}
-          {isOwn ? (
-            <p style={{ fontSize: "11.5px", color: "var(--text-faint)", marginTop: 8 }}>
-              {blocked ? "Indisponible pendant un freeze administrateur." : "Un freeze met en pause votre deadline pour le nombre de jours choisi."}
-            </p>
-          ) : null}
-          {freezeEntries.length ? (
             <>
+              <DeadlineRing remaining={dInfo.remaining} isGreen={dInfo.isGreen} />
               <div className="divider" />
-              <div className="ui-label" style={{ marginBottom: 6 }}>
-                Freeze programmés
+              <div className="ui-label" style={{ marginBottom: 8 }}>
+                Jours de freeze disponibles : <b style={{ color: "var(--gold-light)" }}>{target.freezeDays}</b>
               </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {freezeEntries.map((f) => (
-                  <span key={f.id} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                    <span className="tag tag-gray">
-                      {f.days} j — {fmtDateShort(f.placedAt)}
-                    </span>
-                    {viewerIsAdmin ? (
-                      <form action={deleteFreezeEntry} style={{ display: "inline" }}>
-                        <input type="hidden" name="id" value={f.id} />
-                        <input type="hidden" name="userId" value={target.robloxId} />
-                        <button
-                          type="submit"
-                          className="btn btn-ghost btn-sm"
-                          style={{ padding: "2px 6px", fontSize: 11 }}
-                          title="Retirer cette entrée de l'historique"
-                        >
-                          ✕
-                        </button>
-                      </form>
-                    ) : null}
-                  </span>
-                ))}
-              </div>
+              {isOwn ? (
+                <form action={placeFreeze} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <input
+                    type="number"
+                    name="amount"
+                    min={1}
+                    max={target.freezeDays}
+                    defaultValue={1}
+                    disabled={target.freezeDays < 1 || blocked}
+                    style={{
+                      width: 70,
+                      background: "var(--panel-2)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 8,
+                      padding: "8px 10px",
+                      color: "var(--text)",
+                    }}
+                  />
+                  <button type="submit" className="btn btn-primary btn-sm" disabled={target.freezeDays < 1 || blocked}>
+                    Placer un freeze
+                  </button>
+                </form>
+              ) : (
+                <p style={{ fontSize: 12, color: "var(--text-faint)" }}>Seul le journaliste concerné peut placer ses jours de freeze.</p>
+              )}
+              {isOwn ? (
+                <p style={{ fontSize: "11.5px", color: "var(--text-faint)", marginTop: 8 }}>
+                  {blocked ? "Indisponible pendant un freeze administrateur." : "Un freeze met en pause votre deadline pour le nombre de jours choisi."}
+                </p>
+              ) : null}
+              {freezeEntries.length ? (
+                <>
+                  <div className="divider" />
+                  <div className="ui-label" style={{ marginBottom: 6 }}>
+                    Freeze programmés
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {freezeEntries.map((f) => (
+                      <span key={f.id} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <span className="tag tag-gray">
+                          {f.days} j — {fmtDateShort(f.placedAt)}
+                        </span>
+                        {viewerIsAdmin ? (
+                          <form action={deleteFreezeEntry} style={{ display: "inline" }}>
+                            <input type="hidden" name="id" value={f.id} />
+                            <input type="hidden" name="userId" value={target.robloxId} />
+                            <button
+                              type="submit"
+                              className="btn btn-ghost btn-sm"
+                              style={{ padding: "2px 6px", fontSize: 11 }}
+                              title="Retirer cette entrée de l'historique"
+                            >
+                              ✕
+                            </button>
+                          </form>
+                        ) : null}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              ) : null}
             </>
-          ) : null}
+          )}
         </div>
 
         <div className="card">
@@ -180,8 +190,8 @@ export async function ProfileView({ viewer, target }: { viewer: UserRow; target:
             </div>
             <div className="stat-box">
               <div className="stat-label">Jours de freeze</div>
-              <div className="stat-value">{target.freezeDays}</div>
-              <div className="stat-sub">disponibles</div>
+              <div className="stat-value">{isTargetImmune ? "—" : target.freezeDays}</div>
+              <div className="stat-sub">{isTargetImmune ? "non applicable" : "disponibles"}</div>
             </div>
           </div>
         </div>
@@ -226,65 +236,74 @@ export async function ProfileView({ viewer, target }: { viewer: UserRow; target:
           <div className="card-title">Actions administratives</div>
           <div className="grid grid-2">
             <div>
-              <div className="ui-label" style={{ marginBottom: 8 }}>
-                Créditer des jours supplémentaires
-              </div>
-              <p style={{ fontSize: "11.5px", color: "var(--text-faint)", marginBottom: 10 }}>
-                Ajoute directement des jours à la deadline actuelle (ex : problème technique, erreur de notre part).
-              </p>
-              <form action={creditBonusDays}>
-                <input type="hidden" name="userId" value={target.robloxId} />
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
-                  <input
-                    type="number"
-                    name="amount"
-                    min={1}
-                    defaultValue={2}
-                    style={{ width: 70, background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", color: "var(--text)" }}
-                  />
-                  <span style={{ fontSize: "12.5px", color: "var(--text-faint)" }}>jour(s)</span>
-                </div>
-                <input
-                  type="text"
-                  name="reason"
-                  placeholder="Raison (optionnel)"
-                  style={{ width: "100%", background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "9px 12px", color: "var(--text)", fontSize: 13, marginBottom: 10 }}
-                />
-                <button type="submit" className="btn btn-primary btn-sm">
-                  Créditer les jours
-                </button>
-              </form>
+              {isTargetImmune ? (
+                <p style={{ fontSize: "11.5px", color: "var(--text-faint)" }}>
+                  Ce compte a le droit de regard : il n&apos;est pas soumis à la deadline, il n&apos;y a donc pas de jours à
+                  créditer ou retirer.
+                </p>
+              ) : (
+                <>
+                  <div className="ui-label" style={{ marginBottom: 8 }}>
+                    Créditer des jours supplémentaires
+                  </div>
+                  <p style={{ fontSize: "11.5px", color: "var(--text-faint)", marginBottom: 10 }}>
+                    Ajoute directement des jours à la deadline actuelle (ex : problème technique, erreur de notre part).
+                  </p>
+                  <form action={creditBonusDays}>
+                    <input type="hidden" name="userId" value={target.robloxId} />
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+                      <input
+                        type="number"
+                        name="amount"
+                        min={1}
+                        defaultValue={2}
+                        style={{ width: 70, background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", color: "var(--text)" }}
+                      />
+                      <span style={{ fontSize: "12.5px", color: "var(--text-faint)" }}>jour(s)</span>
+                    </div>
+                    <input
+                      type="text"
+                      name="reason"
+                      placeholder="Raison (optionnel)"
+                      style={{ width: "100%", background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "9px 12px", color: "var(--text)", fontSize: 13, marginBottom: 10 }}
+                    />
+                    <button type="submit" className="btn btn-primary btn-sm">
+                      Créditer les jours
+                    </button>
+                  </form>
 
-              <div className="divider" />
+                  <div className="divider" />
 
-              <div className="ui-label" style={{ marginBottom: 8 }}>
-                Retirer des jours
-              </div>
-              <p style={{ fontSize: "11.5px", color: "var(--text-faint)", marginBottom: 10 }}>
-                Retire des jours de la deadline actuelle (ex : correction d&apos;une erreur, sanction).
-              </p>
-              <form action={removeDays}>
-                <input type="hidden" name="userId" value={target.robloxId} />
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
-                  <input
-                    type="number"
-                    name="amount"
-                    min={1}
-                    defaultValue={2}
-                    style={{ width: 70, background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", color: "var(--text)" }}
-                  />
-                  <span style={{ fontSize: "12.5px", color: "var(--text-faint)" }}>jour(s)</span>
-                </div>
-                <input
-                  type="text"
-                  name="reason"
-                  placeholder="Raison (optionnel)"
-                  style={{ width: "100%", background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "9px 12px", color: "var(--text)", fontSize: 13, marginBottom: 10 }}
-                />
-                <button type="submit" className="btn btn-danger btn-sm">
-                  Retirer les jours
-                </button>
-              </form>
+                  <div className="ui-label" style={{ marginBottom: 8 }}>
+                    Retirer des jours
+                  </div>
+                  <p style={{ fontSize: "11.5px", color: "var(--text-faint)", marginBottom: 10 }}>
+                    Retire des jours de la deadline actuelle (ex : correction d&apos;une erreur, sanction).
+                  </p>
+                  <form action={removeDays}>
+                    <input type="hidden" name="userId" value={target.robloxId} />
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+                      <input
+                        type="number"
+                        name="amount"
+                        min={1}
+                        defaultValue={2}
+                        style={{ width: 70, background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", color: "var(--text)" }}
+                      />
+                      <span style={{ fontSize: "12.5px", color: "var(--text-faint)" }}>jour(s)</span>
+                    </div>
+                    <input
+                      type="text"
+                      name="reason"
+                      placeholder="Raison (optionnel)"
+                      style={{ width: "100%", background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "9px 12px", color: "var(--text)", fontSize: 13, marginBottom: 10 }}
+                    />
+                    <button type="submit" className="btn btn-danger btn-sm">
+                      Retirer les jours
+                    </button>
+                  </form>
+                </>
+              )}
             </div>
 
             <div>
@@ -360,10 +379,10 @@ export async function ProfileView({ viewer, target }: { viewer: UserRow; target:
         </div>
       ) : null}
 
-      {isRedacChef(viewer.role as "journaliste" | "admin" | "redac_chef") && !isOwn ? (
+      {isRedacChef(viewerRole) && !isOwn && targetRole !== "redac_chef" ? (
         <div className="card" style={{ marginTop: 16, borderColor: "var(--gold-dark)" }}>
           <div className="card-title">Droits d&apos;administration — Rédacteur en chef uniquement</div>
-          {target.role === "admin" ? (
+          {targetRole === "admin" ? (
             <>
               <p style={{ fontSize: 13, color: "var(--text-dim)" }}>{target.rpFirstName || target.robloxUsername} est actuellement administrateur.</p>
               <form action={toggleAdminRole}>
@@ -374,16 +393,36 @@ export async function ProfileView({ viewer, target }: { viewer: UserRow; target:
                 </button>
               </form>
             </>
+          ) : targetRole === "supervision" ? (
+            <>
+              <p style={{ fontSize: 13, color: "var(--text-dim)" }}>{target.rpFirstName || target.robloxUsername} a actuellement le droit de regard.</p>
+              <form action={toggleSupervisionRole}>
+                <input type="hidden" name="userId" value={target.robloxId} />
+                <input type="hidden" name="makeSupervision" value="false" />
+                <button type="submit" className="btn btn-danger btn-sm">
+                  Retirer le droit de regard
+                </button>
+              </form>
+            </>
           ) : (
             <>
               <p style={{ fontSize: 13, color: "var(--text-dim)" }}>{target.rpFirstName || target.robloxUsername} est actuellement journaliste.</p>
-              <form action={toggleAdminRole}>
-                <input type="hidden" name="userId" value={target.robloxId} />
-                <input type="hidden" name="makeAdmin" value="true" />
-                <button type="submit" className="btn btn-primary btn-sm">
-                  Promouvoir administrateur
-                </button>
-              </form>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <form action={toggleAdminRole}>
+                  <input type="hidden" name="userId" value={target.robloxId} />
+                  <input type="hidden" name="makeAdmin" value="true" />
+                  <button type="submit" className="btn btn-primary btn-sm">
+                    Promouvoir administrateur
+                  </button>
+                </form>
+                <form action={toggleSupervisionRole}>
+                  <input type="hidden" name="userId" value={target.robloxId} />
+                  <input type="hidden" name="makeSupervision" value="true" />
+                  <button type="submit" className="btn btn-primary btn-sm">
+                    Accorder le droit de regard
+                  </button>
+                </form>
+              </div>
             </>
           )}
         </div>

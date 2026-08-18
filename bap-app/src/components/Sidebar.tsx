@@ -1,10 +1,10 @@
 import Image from "next/image";
 import Link from "next/link";
-import type { UserRow } from "@/lib/permissions";
-import { isAdmin, roleLabels } from "@/lib/permissions";
+import type { Role, UserRow } from "@/lib/permissions";
+import { canAccessAdminPanel, roleLabels } from "@/lib/permissions";
 
 export function Sidebar({ user, activePage }: { user: UserRow; activePage: string }) {
-  const admin = isAdmin(user.role as "journaliste" | "admin" | "redac_chef");
+  const admin = canAccessAdminPanel(user.role as Role);
   const roleClass = user.role === "redac_chef" ? "redac-chef" : user.role;
   const displayName = user.rpFirstName || user.rpLastName ? `${user.rpFirstName} ${user.rpLastName}`.trim() : user.robloxUsername;
 
@@ -64,7 +64,7 @@ export function Sidebar({ user, activePage }: { user: UserRow; activePage: strin
             <div style={{ fontSize: 11, color: "var(--text-faint)" }}>@{user.robloxUsername}</div>
           </div>
         </div>
-        <span className={`role-badge ${roleClass}`}>{roleLabels[user.role as "journaliste" | "admin" | "redac_chef"]}</span>
+        <span className={`role-badge ${roleClass}`}>{roleLabels[user.role as Role]}</span>
         <div className="divider" />
         <a href="/api/auth/logout" className="nav-link" style={{ fontSize: 12, color: "var(--text-faint)" }}>
           ↩ Se déconnecter

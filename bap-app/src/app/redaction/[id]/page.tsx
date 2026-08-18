@@ -6,7 +6,14 @@ import { Shell } from "@/components/Shell";
 import { isAdmin, isBlockedByAdmin, statusLabels } from "@/lib/permissions";
 import { fmtDate } from "@/lib/dates";
 import { formatFileSize } from "@/lib/uploads";
-import { saveDraft, submitForValidation, uploadArticleFile, requestCancel } from "@/actions/articles";
+import {
+  saveDraft,
+  submitForValidation,
+  uploadArticleFile,
+  requestCancel,
+  acceptSecondRequest,
+  declineSecondRequest,
+} from "@/actions/articles";
 
 export default async function RedactionPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
@@ -60,6 +67,29 @@ export default async function RedactionPage({ params }: { params: Promise<{ id: 
             Une demande d&apos;annulation est en attente de traitement par un administrateur. La rédaction est bloquée en
             attendant sa décision.
           </p>
+        </div>
+      ) : null}
+
+      {article.mainJournalistId === user.robloxId && article.secondRequestJournalistId ? (
+        <div className="card" style={{ borderColor: "var(--gold)", background: "rgba(225,169,111,0.1)", marginBottom: 16 }}>
+          <p style={{ margin: "0 0 10px" }}>
+            <b>{journalistName(article.secondRequestJournalistId)}</b> a demandé à rejoindre cet article en tant que
+            journaliste secondaire.
+          </p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <form action={acceptSecondRequest}>
+              <input type="hidden" name="articleId" value={article.id} />
+              <button type="submit" className="btn btn-primary btn-sm">
+                ✓ Accepter
+              </button>
+            </form>
+            <form action={declineSecondRequest}>
+              <input type="hidden" name="articleId" value={article.id} />
+              <button type="submit" className="btn btn-ghost btn-sm">
+                Refuser
+              </button>
+            </form>
+          </div>
         </div>
       ) : null}
 

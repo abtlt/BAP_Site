@@ -88,19 +88,86 @@ export async function takeArticle(formData: FormData) {
   const [article] = await db.select().from(schema.articles).where(eq(schema.articles.id, articleId)).limit(1);
   if (!article) throw new Error("Article introuvable.");
 
-  if (!article.mainJournalistId) {
-    await db
-      .update(schema.articles)
-      .set({ mainJournalistId: viewer.robloxId, status: "en_cours" })
-      .where(eq(schema.articles.id, articleId));
-  } else if (!article.secondJournalistId && article.mainJournalistId !== viewer.robloxId) {
-    await db
-      .update(schema.articles)
-      .set({ secondJournalistId: viewer.robloxId, status: "en_cours" })
-      .where(eq(schema.articles.id, articleId));
-  } else {
-    throw new Error("Cet article a déjà ses journalistes assignés.");
+  if (article.mainJournalistId) {
+    throw new Error(
+      "Cet article a déjà un journaliste principal. Vous pouvez demander à le rejoindre comme journaliste secondaire depuis la liste des articles en cours."
+    );
   }
+
+  await db
+    .update(schema.articles)
+    .set({ mainJournalistId: viewer.robloxId, status: "en_cours" })
+    .where(eq(schema.articles.id, articleId));
+
+  revalidatePath("/articles");
+  revalidatePath(`/redaction/${articleId}`);
+}
+
+// Un journaliste sans article actif demande à rejoindre un article déjà
+// en cours (avec un journaliste principal mais pas de secondaire) en
+// tant que journaliste secondaire. Le journaliste principal doit ensuite
+// accepter ou refuser.
+export async function requestSecondSlot(formData: FormData) {
+  const viewer = await requireViewer();
+  if (isBlockedByAdmin(viewer)) throw new Error("Votre compte est gelé par un administrateur.");
+
+  const articleId = String(formData.get("articleId"));
+
+  const active = await findActiveArticleFor(viewer.robloxId);
+  if (active) throw new Error("Vous avez déjà un article actif : impossible de demander à en rejoindre un autre.");
+
+  const db = getDb();
+  const [article] = await db.select().from(schema.articles).where(eq(schema.articles.id, articleId)).limit(1);
+  if (!article) throw new Error("Article introuvable.");
+  if (!article.mainJournalistId || article.mainJournalistId === viewer.robloxId) {
+    throw new Error("Cet article n'est pas disponible pour une demande de journaliste secondaire.");
+  }
+  if (article.secondJournalistId) throw new Error("Cet article a déjà un journaliste secondaire.");
+  if (article.secondRequestJournalistId) throw new Error("Une demande est déjà en attente sur cet article.");
+  if (!(ACTIVE_STATUSES as readonly string[]).includes(article.status)) {
+    throw new Error("Cet article n'accepte plus de nouvelle demande.");
+  }
+
+  await db
+    .update(schema.articles)
+    .set({ secondRequestJournalistId: viewer.robloxId })
+    .where(eq(schema.articles.id, articleId));
+
+  revalidatePath("/articles");
+  revalidatePath(`/redaction/${articleId}`);
+}
+
+// Le journaliste principal accepte la demande : le demandeur devient
+// journaliste secondaire de l'article.
+export async function acceptSecondRequest(formData: FormData) {
+  const viewer = await requireViewer();
+  const articleId = String(formData.get("articleId"));
+
+  const db = getDb();
+  const [article] = await db.select().from(schema.articles).where(eq(schema.articles.id, articleId)).limit(1);
+  if (!article || !article.secondRequestJournalistId) throw new Error("Aucune demande en attente.");
+  if (article.mainJournalistId !== viewer.robloxId) throw new Error("Seul le journaliste principal peut répondre à cette demande.");
+
+  await db
+    .update(schema.articles)
+    .set({ secondJournalistId: article.secondRequestJournalistId, secondRequestJournalistId: null })
+    .where(eq(schema.articles.id, articleId));
+
+  revalidatePath("/articles");
+  revalidatePath(`/redaction/${articleId}`);
+}
+
+// Le journaliste principal refuse la demande.
+export async function declineSecondRequest(formData: FormData) {
+  const viewer = await requireViewer();
+  const articleId = String(formData.get("articleId"));
+
+  const db = getDb();
+  const [article] = await db.select().from(schema.articles).where(eq(schema.articles.id, articleId)).limit(1);
+  if (!article || !article.secondRequestJournalistId) throw new Error("Aucune demande en attente.");
+  if (article.mainJournalistId !== viewer.robloxId) throw new Error("Seul le journaliste principal peut répondre à cette demande.");
+
+  await db.update(schema.articles).set({ secondRequestJournalistId: null }).where(eq(schema.articles.id, articleId));
 
   revalidatePath("/articles");
   revalidatePath(`/redaction/${articleId}`);
@@ -348,4 +415,71 @@ export async function deleteArticle(formData: FormData) {
   revalidatePath("/admin");
   revalidatePath("/articles");
   revalidatePath(`/redaction/${articleId}`);
+}
+
+// Retire de force un journaliste (principal ou secondaire) d'un article
+// en cours — réservé aux administrateurs, sans passer par une demande
+// du journaliste concerné. Si le journaliste principal est retiré, le
+// secondaire (s'il y en a un) devient principal ; sinon l'article
+// redevient disponible (comme pour une annulation approuvée).
+export async function forceRemoveJournalist(formData: FormData) {
+  await requireAdmin();
+  const articleId = String(formData.get("articleId"));
+  const journalistId = String(formData.get("journalistId"));
+
+  const db = getDb();
+  const [article] = await db.select().from(schema.articles).where(eq(schema.articles.id, articleId)).limit(1);
+  if (!article) throw new Error("Article introuvable.");
+
+  const patch: Partial<typeof schema.articles.$inferInsert> = {
+    cancelRequestJournalistId: null,
+    cancelRequestReason: null,
+    cancelRequestDate: null,
+    secondRequestJournalistId: null,
+  };
+
+  if (article.mainJournalistId === journalistId) {
+    if (article.secondJournalistId) {
+      patch.mainJournalistId = article.secondJournalistId;
+      patch.secondJournalistId = null;
+    } else {
+      patch.mainJournalistId = null;
+      patch.status = "disponible";
+      patch.content = "";
+    }
+  } else if (article.secondJournalistId === journalistId) {
+    patch.secondJournalistId = null;
+  } else {
+    throw new Error("Ce journaliste n'est pas assigné à cet article.");
+  }
+
+  await db.update(schema.articles).set(patch).where(eq(schema.articles.id, articleId));
+
+  if (patch.status === "disponible") {
+    await db.delete(schema.articleFiles).where(eq(schema.articleFiles.articleId, articleId));
+  }
+
+  revalidatePath("/articles");
+  revalidatePath("/admin");
+  revalidatePath(`/redaction/${articleId}`);
+}
+
+// Archive un article déjà validé — réservé aux administrateurs. L'article
+// reste consultable dans l'onglet Archives et peut toujours être
+// supprimé définitivement.
+export async function archiveArticle(formData: FormData) {
+  await requireAdmin();
+  const articleId = String(formData.get("articleId"));
+
+  const db = getDb();
+  const [article] = await db.select().from(schema.articles).where(eq(schema.articles.id, articleId)).limit(1);
+  if (!article) throw new Error("Article introuvable.");
+  if (article.status !== "valide") throw new Error("Seul un article validé peut être archivé.");
+
+  await db
+    .update(schema.articles)
+    .set({ archived: true, archivedAt: new Date().toISOString() })
+    .where(eq(schema.articles.id, articleId));
+
+  revalidatePath("/admin");
 }

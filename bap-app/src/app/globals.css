@@ -24,6 +24,8 @@
   --red-bg: rgba(226, 86, 79, 0.14);
   --orange: #e0a83f;
   --orange-bg: rgba(224, 168, 63, 0.14);
+  --blue: #4c8bde;
+  --blue-bg: rgba(76, 139, 222, 0.14);
   --radius: 12px;
   --radius-sm: 8px;
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
@@ -131,6 +133,7 @@ a:hover { color: var(--gold-light); }
 .role-badge.journaliste { background: var(--panel-3); color: var(--text-dim); }
 .role-badge.admin { background: rgba(225,169,111,0.15); color: var(--gold); }
 .role-badge.redac-chef { background: rgba(225,169,111,0.22); color: var(--gold-light); border: 1px solid var(--gold-dark); }
+.role-badge.supervision { background: var(--blue-bg); color: var(--blue); border: 1px solid var(--blue); }
 
 .main {
   padding: 30px 42px 60px;
@@ -260,10 +263,12 @@ a:hover { color: var(--gold-light); }
 .deadline-ring .ring-fg { fill: none; stroke-width: 10; stroke-linecap: round; transition: stroke-dashoffset 0.6s ease; }
 .deadline-ring .ring-fg.green { stroke: var(--green); }
 .deadline-ring .ring-fg.red { stroke: var(--red); }
+.deadline-ring .ring-fg.blue { stroke: var(--blue); }
 .deadline-ring .ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .deadline-ring .ring-num { font-size: 26px; font-weight: 700; }
 .deadline-ring .ring-num.green { color: var(--green); }
 .deadline-ring .ring-num.red { color: var(--red); }
+.deadline-ring .ring-num.blue { color: var(--blue); }
 .deadline-ring .ring-unit { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; }
 
 /* ---- Badges / tags ---- */
@@ -279,6 +284,7 @@ a:hover { color: var(--gold-light); }
 }
 .tag-green { background: var(--green-bg); color: var(--green); }
 .tag-red { background: var(--red-bg); color: var(--red); }
+.tag-blue { background: var(--blue-bg); color: var(--blue); }
 .tag-orange { background: var(--orange-bg); color: var(--orange); }
 .tag-gold { background: rgba(225,169,111,0.15); color: var(--gold); }
 .tag-gray { background: var(--panel-3); color: var(--text-dim); }

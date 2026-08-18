@@ -240,7 +240,7 @@ export async function deleteFreezeEntry(formData: FormData) {
 // Promotion / rétrogradation administrateur — réservé au rédacteur en chef.
 export async function toggleAdminRole(formData: FormData) {
   const viewer = await requireViewer();
-  if (!isRedacChef(viewer.role as "journaliste" | "admin" | "redac_chef")) {
+  if (!isRedacChef(viewer.role as "journaliste" | "admin" | "redac_chef" | "supervision")) {
     throw new Error("Seul le rédacteur en chef peut gérer les droits d'administration.");
   }
 
@@ -252,6 +252,39 @@ export async function toggleAdminRole(formData: FormData) {
   await db
     .update(schema.users)
     .set({ role: makeAdmin ? "admin" : "journaliste" })
+    .where(eq(schema.users.robloxId, userId));
+
+  revalidatePath(`/profil/${userId}`);
+  revalidatePath("/admin");
+}
+
+// Attribution / retrait du rôle "droit de regard" (direction locale) —
+// réservé au rédacteur en chef. Ne peut être accordé qu'à un simple
+// journaliste (il faut d'abord retirer un autre rôle le cas échéant).
+export async function toggleSupervisionRole(formData: FormData) {
+  const viewer = await requireViewer();
+  if (!isRedacChef(viewer.role as "journaliste" | "admin" | "redac_chef" | "supervision")) {
+    throw new Error("Seul le rédacteur en chef peut gérer le droit de regard.");
+  }
+
+  const userId = String(formData.get("userId"));
+  const makeSupervision = String(formData.get("makeSupervision")) === "true";
+  if (userId === viewer.robloxId) throw new Error("Vous ne pouvez pas modifier vos propres droits.");
+
+  const db = getDb();
+  const [target] = await db.select().from(schema.users).where(eq(schema.users.robloxId, userId)).limit(1);
+  if (!target) throw new Error("Utilisateur introuvable.");
+
+  if (makeSupervision && target.role !== "journaliste") {
+    throw new Error("Seul un journaliste peut recevoir le droit de regard (retirez d'abord son rôle actuel).");
+  }
+  if (!makeSupervision && target.role !== "supervision") {
+    throw new Error("Cet utilisateur n'a pas le droit de regard.");
+  }
+
+  await db
+    .update(schema.users)
+    .set({ role: makeSupervision ? "supervision" : "journaliste" })
     .where(eq(schema.users.robloxId, userId));
 
   revalidatePath(`/profil/${userId}`);

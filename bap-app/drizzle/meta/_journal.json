@@ -15,6 +15,13 @@
       "when": 1787016441323,
       "tag": "0001_friendly_adam_warlock",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787061223175,
+      "tag": "0002_chilly_stephen_strange",
+      "breakpoints": true
     }
   ]
 }

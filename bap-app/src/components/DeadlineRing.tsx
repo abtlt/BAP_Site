@@ -1,8 +1,42 @@
 import { DEADLINE_CYCLE_DAYS } from "@/lib/dates";
 
-export function DeadlineRing({ remaining, isGreen, size = 128 }: { remaining: number; isGreen: boolean; size?: number }) {
+export function DeadlineRing({
+  remaining,
+  isGreen,
+  size = 128,
+  immune = false,
+}: {
+  remaining: number;
+  isGreen: boolean;
+  size?: number;
+  immune?: boolean;
+}) {
   const r = 54;
   const c = 2 * Math.PI * r;
+
+  if (immune) {
+    return (
+      <div className="deadline-ring-wrap">
+        <div className="deadline-ring" style={{ width: size, height: size }}>
+          <svg width={size} height={size} viewBox="0 0 128 128">
+            <circle className="ring-bg" cx="64" cy="64" r={r} />
+            <circle className="ring-fg blue" cx="64" cy="64" r={r} strokeDasharray={c} strokeDashoffset={0} />
+          </svg>
+          <div className="ring-center">
+            <div className="ring-num blue">∞</div>
+            <div className="ring-unit">immunisé</div>
+          </div>
+        </div>
+        <div>
+          <span className="tag tag-blue">Immunisé</span>
+          <p style={{ color: "var(--text-dim)", fontSize: 13, marginTop: 8 }}>
+            Ce compte a le droit de regard : il n&apos;est pas soumis à la deadline de rédaction.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const pct = Math.max(0, Math.min(1, remaining / DEADLINE_CYCLE_DAYS));
   const offset = c * (1 - pct);
   const colorClass = isGreen ? "green" : "red";

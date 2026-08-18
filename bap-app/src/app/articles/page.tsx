@@ -1,10 +1,10 @@
-import { and, eq, ne, or } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, ne, or } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { getDb, schema } from "@/db";
 import { getCurrentUser } from "@/lib/session";
 import { Shell } from "@/components/Shell";
-import { ACTIVE_STATUSES, isAdmin, isBlockedByAdmin, statusLabels } from "@/lib/permissions";
-import { takeArticle, requestCancel, deleteArticle } from "@/actions/articles";
+import { ACTIVE_STATUSES, isAdmin, isBlockedByAdmin, statusLabels, type Role } from "@/lib/permissions";
+import { takeArticle, requestCancel, deleteArticle, requestSecondSlot } from "@/actions/articles";
 import { ConfirmSubmitButton } from "@/components/ConfirmSubmitButton";
 
 export default async function ArticlesPage() {
@@ -12,7 +12,7 @@ export default async function ArticlesPage() {
   if (!user) redirect("/login");
 
   const db = getDb();
-  const [mine, available, journalists] = await Promise.all([
+  const [mine, available, openSecondSlotsRaw, journalists] = await Promise.all([
     db
       .select()
       .from(schema.articles)
@@ -23,6 +23,10 @@ export default async function ArticlesPage() {
         )
       ),
     db.select().from(schema.articles).where(eq(schema.articles.status, "disponible")),
+    db
+      .select()
+      .from(schema.articles)
+      .where(and(isNotNull(schema.articles.mainJournalistId), isNull(schema.articles.secondJournalistId))),
     db.select().from(schema.users),
   ]);
 
@@ -38,7 +42,14 @@ export default async function ArticlesPage() {
   );
   const isBlocked = isBlockedByAdmin(user);
   const blockedFromTaking = !!myActiveArticle || isBlocked;
-  const viewerIsAdmin = isAdmin(user.role as "journaliste" | "admin" | "redac_chef");
+  const viewerIsAdmin = isAdmin(user.role as Role);
+
+  // Articles en cours cherchant un journaliste secondaire — uniquement
+  // proposés aux journalistes qui n'ont pas déjà un article actif, et
+  // qui ne sont pas déjà le journaliste principal de cet article.
+  const openSecondSlots = openSecondSlotsRaw.filter(
+    (a) => activeIds.has(a.status) && a.mainJournalistId !== user.robloxId
+  );
 
   return (
     <Shell user={user} activePage="articles">
@@ -69,12 +80,14 @@ export default async function ArticlesPage() {
               const st = statusLabels[a.status];
               const canRequestCancel = activeIds.has(a.status);
               const hasPendingCancel = !!a.cancelRequestJournalistId;
+              const isMainHere = a.mainJournalistId === user.robloxId;
               return (
                 <div key={a.id} className="card article-card">
                   <div className="art-tags">
                     <span className={`tag ${st.cls}`}>{st.label}</span>
                     {a.forPublication ? <span className="tag tag-gold">Pour publication</span> : <span className="tag tag-gray">Interne</span>}
                     {hasPendingCancel ? <span className="tag tag-orange">Annulation demandée</span> : null}
+                    {isMainHere && a.secondRequestJournalistId ? <span className="tag tag-blue">Demande de journaliste secondaire</span> : null}
                   </div>
                   <div className="art-title">{a.title}</div>
                   <div className="art-meta">
@@ -115,6 +128,52 @@ export default async function ArticlesPage() {
                       </button>
                     </form>
                   ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
+
+      {!myActiveArticle && openSecondSlots.length ? (
+        <>
+          <div className="card-title" style={{ marginBottom: 10 }}>
+            Articles en cours cherchant un journaliste secondaire
+          </div>
+          <div className="grid grid-auto" style={{ marginBottom: 26 }}>
+            {openSecondSlots.map((a) => {
+              const hasPendingRequest = !!a.secondRequestJournalistId;
+              const isMyOwnRequest = a.secondRequestJournalistId === user.robloxId;
+              return (
+                <div key={a.id} className="card article-card">
+                  <div className="art-tags">
+                    <span className="tag tag-orange">En cours</span>
+                    {a.forPublication ? <span className="tag tag-gold">Pour publication</span> : <span className="tag tag-gray">Interne</span>}
+                  </div>
+                  <div className="art-title">{a.title}</div>
+                  <div className="art-meta">
+                    {a.mainSubject}
+                    {a.secondSubject ? ` · ${a.secondSubject}` : ""}
+                  </div>
+                  <div className="art-meta">Journaliste principal : {journalistName(a.mainJournalistId)}</div>
+                  <div className="art-actions">
+                    {isMyOwnRequest ? (
+                      <span style={{ fontSize: "11.5px", color: "var(--text-faint)", alignSelf: "center" }}>
+                        Demande envoyée, en attente de réponse du journaliste principal
+                      </span>
+                    ) : hasPendingRequest ? (
+                      <span style={{ fontSize: "11.5px", color: "var(--text-faint)", alignSelf: "center" }}>
+                        Une demande d&apos;un autre journaliste est déjà en attente
+                      </span>
+                    ) : (
+                      <form action={requestSecondSlot}>
+                        <input type="hidden" name="articleId" value={a.id} />
+                        <button type="submit" className="btn btn-primary btn-sm">
+                          Demander à devenir journaliste secondaire
+                        </button>
+                      </form>
+                    )}
+                  </div>
                 </div>
               );
             })}

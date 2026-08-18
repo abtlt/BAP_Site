@@ -15,7 +15,7 @@ export const users = sqliteTable("users", {
   rpLastName: text("rp_last_name").notNull().default(""),
   grade: text("grade").notNull().default("Analyste"),
 
-  // 'journaliste' | 'admin' | 'redac_chef'
+  // 'journaliste' | 'admin' | 'redac_chef' | 'supervision' (droit de regard)
   role: text("role").notNull().default("journaliste"),
 
   arrivalDate: text("arrival_date").notNull(),
@@ -76,6 +76,16 @@ export const articles = sqliteTable("articles", {
   cancelRequestJournalistId: text("cancel_request_journalist_id"),
   cancelRequestReason: text("cancel_request_reason"),
   cancelRequestDate: text("cancel_request_date"),
+
+  // Demande d'un journaliste (sans article actif) pour rejoindre cet
+  // article en tant que journaliste secondaire. Le journaliste principal
+  // accepte ou refuse. Une seule demande à la fois.
+  secondRequestJournalistId: text("second_request_journalist_id"),
+
+  // Archivage (admin uniquement) d'un article déjà validé — reste
+  // consultable dans un onglet dédié, toujours supprimable.
+  archived: integer("archived", { mode: "boolean" }).notNull().default(false),
+  archivedAt: text("archived_at"),
 });
 
 export const articleFiles = sqliteTable("article_files", {

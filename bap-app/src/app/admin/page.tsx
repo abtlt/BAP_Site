@@ -3,43 +3,70 @@ import { redirect } from "next/navigation";
 import { getDb, schema } from "@/db";
 import { getCurrentUser } from "@/lib/session";
 import { Shell } from "@/components/Shell";
-import { ACTIVE_STATUSES, GRADES, isAdmin, isBlockedByAdmin, isRedacChef, roleLabels, statusLabels } from "@/lib/permissions";
+import {
+  ACTIVE_STATUSES,
+  GRADES,
+  canAccessAdminPanel,
+  isAdmin,
+  isBlockedByAdmin,
+  isRedacChef,
+  roleLabels,
+  statusLabels,
+  type Role,
+} from "@/lib/permissions";
 import { fmtDate, fmtDateShort, deadlineInfo } from "@/lib/dates";
-import { createArticle, validateArticle, rejectArticle, approveCancellation, declineCancellation, deleteArticle } from "@/actions/articles";
+import {
+  createArticle,
+  validateArticle,
+  rejectArticle,
+  approveCancellation,
+  declineCancellation,
+  deleteArticle,
+  archiveArticle,
+  forceRemoveJournalist,
+} from "@/actions/articles";
 import { addAuthorizedUser, removeAuthorizedUser } from "@/actions/access";
 import { ConfirmSubmitButton } from "@/components/ConfirmSubmitButton";
 
-const TABS = [
-  { key: "overview", label: "Vue d'ensemble" },
-  { key: "new", label: "Nouveau projet" },
-  { key: "validation", label: "Validation" },
-  { key: "cancellations", label: "Annulations" },
-  { key: "history", label: "Historique" },
-  { key: "journalists", label: "Journalistes" },
-  { key: "access", label: "Accès" },
+const ALL_TABS = [
+  { key: "overview", label: "Vue d'ensemble", adminOnly: false },
+  { key: "new", label: "Nouveau projet", adminOnly: true },
+  { key: "validation", label: "Validation", adminOnly: true },
+  { key: "cancellations", label: "Annulations", adminOnly: true },
+  { key: "history", label: "Historique", adminOnly: true },
+  { key: "archives", label: "Archives", adminOnly: true },
+  { key: "journalists", label: "Journalistes", adminOnly: false },
+  { key: "access", label: "Accès", adminOnly: true },
 ] as const;
 
 export default async function AdminPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const viewer = await getCurrentUser();
   if (!viewer) redirect("/login");
-  if (!isAdmin(viewer.role as "journaliste" | "admin" | "redac_chef")) redirect("/profil");
+  const viewerRole = viewer.role as Role;
+  if (!canAccessAdminPanel(viewerRole)) redirect("/profil");
+
+  const viewerIsAdmin = isAdmin(viewerRole);
+  const TABS = ALL_TABS.filter((t) => viewerIsAdmin || !t.adminOnly);
 
   const { tab: tabParam } = await searchParams;
-  const activeTab = (TABS.find((t) => t.key === tabParam)?.key ?? "overview") as (typeof TABS)[number]["key"];
-  const isRedacChefViewer = isRedacChef(viewer.role as "journaliste" | "admin" | "redac_chef");
+  const activeTab = (TABS.find((t) => t.key === tabParam)?.key ?? "overview") as (typeof ALL_TABS)[number]["key"];
+  const isRedacChefViewer = isRedacChef(viewerRole);
 
   const db = getDb();
   const [allArticles, journalists, authorizedUsers] = await Promise.all([
     db.select().from(schema.articles),
     db.select().from(schema.users),
-    db.select().from(schema.authorizedRobloxUsers).orderBy(desc(schema.authorizedRobloxUsers.addedAt)),
+    viewerIsAdmin
+      ? db.select().from(schema.authorizedRobloxUsers).orderBy(desc(schema.authorizedRobloxUsers.addedAt))
+      : Promise.resolve([]),
   ]);
 
   const activeSet = new Set(ACTIVE_STATUSES as readonly string[]);
   const inProgress = allArticles.filter((a) => activeSet.has(a.status));
   const pendingValidation = allArticles.filter((a) => a.status === "en_validation");
   const pendingCancellations = allArticles.filter((a) => !!a.cancelRequestJournalistId);
-  const history = allArticles.filter((a) => a.status === "valide");
+  const history = allArticles.filter((a) => a.status === "valide" && !a.archived);
+  const archives = allArticles.filter((a) => a.status === "valide" && a.archived);
 
   const journalistName = (id: string | null) => {
     if (!id) return "—";
@@ -53,9 +80,13 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
         <div>
           <div className="eyebrow ui-label">Administration</div>
           <h1>Panel administrateur</h1>
-          <div className="desc">Gestion des journalistes, des projets d&apos;articles et des validations.</div>
+          <div className="desc">
+            {viewerIsAdmin
+              ? "Gestion des journalistes, des projets d'articles et des validations."
+              : "Vue d'ensemble en lecture seule de l'effectif et des articles en cours."}
+          </div>
         </div>
-        <span className={`role-badge ${isRedacChefViewer ? "redac-chef" : "admin"}`}>{roleLabels[viewer.role as "journaliste" | "admin" | "redac_chef"]}</span>
+        <span className={`role-badge ${isRedacChefViewer ? "redac-chef" : viewerRole}`}>{roleLabels[viewerRole]}</span>
       </div>
 
       <div className="tabs">
@@ -80,48 +111,92 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
         <div className="card">
           <div className="card-title">Articles en cours de traitement ({inProgress.length})</div>
           {inProgress.length ? (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Titre</th>
-                  <th>Journaliste(s)</th>
-                  <th>Statut</th>
-                  <th>Créé le</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {inProgress.map((a) => {
-                  const st = statusLabels[a.status];
-                  return (
-                    <tr key={a.id}>
-                      <td style={{ color: "var(--text)" }}>{a.title}</td>
-                      <td>
-                        {journalistName(a.mainJournalistId)}
-                        {a.secondJournalistId ? ` · ${journalistName(a.secondJournalistId)}` : ""}
-                      </td>
-                      <td>
-                        <span className={`tag ${st.cls}`}>{st.label}</span>
-                        {a.cancelRequestJournalistId ? <span className="tag tag-orange" style={{ marginLeft: 6 }}>Annulation demandée</span> : null}
-                      </td>
-                      <td>{fmtDateShort(a.createdAt)}</td>
-                      <td>
-                        <a className="btn btn-ghost btn-sm" href={`/redaction/${a.id}`}>
-                          Voir
-                        </a>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            inProgress.map((a) => {
+              const st = statusLabels[a.status];
+              return (
+                <div key={a.id} className="card" style={{ background: "var(--panel-2)", marginBottom: 12 }}>
+                  <div className="art-tags">
+                    <span className={`tag ${st.cls}`}>{st.label}</span>
+                    {a.cancelRequestJournalistId ? <span className="tag tag-orange">Annulation demandée</span> : null}
+                    {a.secondRequestJournalistId ? <span className="tag tag-blue">Demande de journaliste secondaire</span> : null}
+                  </div>
+                  <div className="art-title">{a.title}</div>
+                  <div className="art-meta" style={{ marginBottom: 10 }}>
+                    {a.mainSubject}
+                    {a.secondSubject ? ` · ${a.secondSubject}` : ""} — créé le {fmtDateShort(a.createdAt)}
+                  </div>
+
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span className="art-meta" style={{ margin: 0 }}>
+                        Principal : {journalistName(a.mainJournalistId)}
+                      </span>
+                      {viewerIsAdmin && a.mainJournalistId ? (
+                        <form action={forceRemoveJournalist}>
+                          <input type="hidden" name="articleId" value={a.id} />
+                          <input type="hidden" name="journalistId" value={a.mainJournalistId} />
+                          <ConfirmSubmitButton
+                            className="btn btn-ghost btn-sm"
+                            style={{ padding: "2px 8px", fontSize: 11 }}
+                            message={`Retirer de force ${journalistName(a.mainJournalistId)} de « ${a.title} » ?`}
+                          >
+                            Retirer
+                          </ConfirmSubmitButton>
+                        </form>
+                      ) : null}
+                    </div>
+                    {a.secondJournalistId ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span className="art-meta" style={{ margin: 0 }}>
+                          Secondaire : {journalistName(a.secondJournalistId)}
+                        </span>
+                        {viewerIsAdmin ? (
+                          <form action={forceRemoveJournalist}>
+                            <input type="hidden" name="articleId" value={a.id} />
+                            <input type="hidden" name="journalistId" value={a.secondJournalistId} />
+                            <ConfirmSubmitButton
+                              className="btn btn-ghost btn-sm"
+                              style={{ padding: "2px 8px", fontSize: 11 }}
+                              message={`Retirer de force ${journalistName(a.secondJournalistId)} de « ${a.title} » ?`}
+                            >
+                              Retirer
+                            </ConfirmSubmitButton>
+                          </form>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <p
+                    style={{
+                      fontSize: 13,
+                      color: "var(--text-dim)",
+                      whiteSpace: "pre-wrap",
+                      maxHeight: 120,
+                      overflow: "auto",
+                      background: "var(--panel)",
+                      padding: "10px 12px",
+                      borderRadius: 8,
+                      border: "1px solid var(--border)",
+                      marginBottom: 10,
+                    }}
+                  >
+                    {(a.content || "(brouillon vide)").slice(0, 500)}
+                  </p>
+
+                  <a className="btn btn-ghost btn-sm" href={`/redaction/${a.id}`}>
+                    Voir en entier
+                  </a>
+                </div>
+              );
+            })
           ) : (
             <div className="empty-state">Aucun article en cours actuellement.</div>
           )}
         </div>
       ) : null}
 
-      {activeTab === "new" ? (
+      {activeTab === "new" && viewerIsAdmin ? (
         <div className="card">
           <div className="card-title">Créer un projet d&apos;article</div>
           <form action={createArticle}>
@@ -191,7 +266,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
         </div>
       ) : null}
 
-      {activeTab === "validation" ? (
+      {activeTab === "validation" && viewerIsAdmin ? (
         <div className="card">
           <div className="card-title">Articles en attente de validation ({pendingValidation.length})</div>
           {pendingValidation.length ? (
@@ -243,7 +318,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
         </div>
       ) : null}
 
-      {activeTab === "cancellations" ? (
+      {activeTab === "cancellations" && viewerIsAdmin ? (
         <div className="card">
           <div className="card-title">Demandes d&apos;annulation ({pendingCancellations.length})</div>
           {pendingCancellations.length ? (
@@ -291,7 +366,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
         </div>
       ) : null}
 
-      {activeTab === "history" ? (
+      {activeTab === "history" && viewerIsAdmin ? (
         <div className="card">
           <div className="card-title">Historique des articles validés ({history.length})</div>
           {history.length ? (
@@ -315,7 +390,13 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
                     </td>
                     <td>{a.mainSubject}</td>
                     <td>{a.forPublication ? <span className="tag tag-green">Oui</span> : <span className="tag tag-gray">Non</span>}</td>
-                    <td>
+                    <td style={{ display: "flex", gap: 6 }}>
+                      <form action={archiveArticle}>
+                        <input type="hidden" name="articleId" value={a.id} />
+                        <button type="submit" className="btn btn-ghost btn-sm">
+                          Archiver
+                        </button>
+                      </form>
                       <form>
                         <input type="hidden" name="articleId" value={a.id} />
                         <ConfirmSubmitButton
@@ -333,6 +414,52 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
             </table>
           ) : (
             <div className="empty-state">Aucun article validé pour le moment.</div>
+          )}
+        </div>
+      ) : null}
+
+      {activeTab === "archives" && viewerIsAdmin ? (
+        <div className="card">
+          <div className="card-title">Articles archivés ({archives.length})</div>
+          {archives.length ? (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Titre</th>
+                  <th>Journaliste(s)</th>
+                  <th>Sujet</th>
+                  <th>Archivé le</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {archives.map((a) => (
+                  <tr key={a.id}>
+                    <td style={{ color: "var(--text)" }}>{a.title}</td>
+                    <td>
+                      {journalistName(a.mainJournalistId)}
+                      {a.secondJournalistId ? ` · ${journalistName(a.secondJournalistId)}` : ""}
+                    </td>
+                    <td>{a.mainSubject}</td>
+                    <td>{a.archivedAt ? fmtDateShort(a.archivedAt) : "—"}</td>
+                    <td>
+                      <form>
+                        <input type="hidden" name="articleId" value={a.id} />
+                        <ConfirmSubmitButton
+                          formAction={deleteArticle}
+                          className="btn btn-danger btn-sm"
+                          message={`Supprimer définitivement l'article archivé « ${a.title} » ? Cette action est irréversible.`}
+                        >
+                          Supprimer
+                        </ConfirmSubmitButton>
+                      </form>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="empty-state">Aucun article archivé pour le moment.</div>
           )}
         </div>
       ) : null}
@@ -355,6 +482,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
             </thead>
             <tbody>
               {journalists.map((j) => {
+                const jRole = j.role as Role;
+                const immune = jRole === "supervision";
                 const dInfo = deadlineInfo(j.deadlineDate);
                 const blocked = isBlockedByAdmin(j);
                 const roleClass = j.role === "redac_chef" ? "redac-chef" : j.role;
@@ -365,12 +494,16 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
                     <td>{j.grade}</td>
                     <td>
                       <span className={`role-badge ${roleClass}`} style={{ fontSize: 10 }}>
-                        {roleLabels[j.role as "journaliste" | "admin" | "redac_chef"]}
+                        {roleLabels[jRole]}
                       </span>
                     </td>
                     <td>{blocked ? <span className="tag tag-red">🔒 Gelé</span> : <span className="tag tag-green">Actif</span>}</td>
                     <td>
-                      <span className={`tag ${dInfo.isGreen ? "tag-green" : "tag-red"}`}>{dInfo.remaining < 0 ? "Retard" : `${dInfo.remaining} j`}</span>
+                      {immune ? (
+                        <span className="tag tag-blue">Immunisé</span>
+                      ) : (
+                        <span className={`tag ${dInfo.isGreen ? "tag-green" : "tag-red"}`}>{dInfo.remaining < 0 ? "Retard" : `${dInfo.remaining} j`}</span>
+                      )}
                     </td>
                     <td>{j.articlesCount}</td>
                     <td>
@@ -385,13 +518,14 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
           </table>
           {!isRedacChefViewer ? (
             <p style={{ fontSize: "11.5px", color: "var(--text-faint)", marginTop: 12 }}>
-              Seul le rédacteur en chef peut nommer ou retirer des administrateurs (depuis la fiche du journaliste).
+              Seul le rédacteur en chef peut nommer ou retirer des administrateurs ou le droit de regard (depuis la fiche du
+              journaliste).
             </p>
           ) : null}
         </div>
       ) : null}
 
-      {activeTab === "access" ? (
+      {activeTab === "access" && viewerIsAdmin ? (
         <div className="card">
           <div className="card-title">Liste blanche d&apos;accès au site</div>
           <p style={{ fontSize: "12.5px", color: "var(--text-faint)", marginBottom: 16 }}>

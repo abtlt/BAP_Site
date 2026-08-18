@@ -1,6 +1,6 @@
 import type { schema } from "@/db";
 
-export type Role = "journaliste" | "admin" | "redac_chef";
+export type Role = "journaliste" | "admin" | "redac_chef" | "supervision";
 export type UserRow = typeof schema.users.$inferSelect;
 
 export function isAdmin(role: Role): boolean {
@@ -9,6 +9,19 @@ export function isAdmin(role: Role): boolean {
 
 export function isRedacChef(role: Role): boolean {
   return role === "redac_chef";
+}
+
+// "Droit de regard" — rôle de direction locale : lecture seule sur
+// l'effectif et les articles en cours, aucune capacité de gestion
+// (pas de création/validation d'article, pas d'accès à la liste blanche).
+export function isSupervision(role: Role): boolean {
+  return role === "supervision";
+}
+
+// Peut ouvrir le panel administrateur (en lecture seule pour le rôle
+// "droit de regard", en écriture complète pour admin/rédacteur en chef).
+export function canAccessAdminPanel(role: Role): boolean {
+  return isAdmin(role) || isSupervision(role);
 }
 
 export function isBlockedByAdmin(user: Pick<UserRow, "adminFreezeActive">): boolean {
@@ -21,6 +34,7 @@ export const roleLabels: Record<Role, string> = {
   journaliste: "Journaliste",
   admin: "Administrateur",
   redac_chef: "Rédacteur en chef",
+  supervision: "Droit de regard",
 };
 
 export const statusLabels: Record<string, { label: string; cls: string }> = {
@@ -38,4 +52,6 @@ export const GRADES = [
   "Journaliste Senior",
   "Adjoint au Rédacteur en Chef",
   "Rédacteur en Chef",
+  "Direction Local",
+  "Direction International",
 ];
