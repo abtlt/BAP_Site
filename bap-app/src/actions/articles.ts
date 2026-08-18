@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { randomUUID } from "node:crypto";
 import { getDb, schema } from "@/db";
 import { getCurrentUser } from "@/lib/session";
-import { isAdmin, isBlockedByAdmin, ACTIVE_STATUSES } from "@/lib/permissions";
+import { isAdmin, isBlockedByAdmin, ACTIVE_STATUSES, type Role } from "@/lib/permissions";
 import { addDays, DEADLINE_CYCLE_DAYS } from "@/lib/dates";
 import { saveUploadedFile, deleteArticleUploads, deleteUploadedFile } from "@/lib/uploads";
 
@@ -35,10 +35,17 @@ async function findActiveArticleFor(journalistId: string) {
   return article ?? null;
 }
 
+function clampPriority(raw: FormDataEntryValue | null): number {
+  const n = parseInt(String(raw || "1"), 10);
+  if (n >= 3) return 3;
+  if (n === 2) return 2;
+  return 1;
+}
+
 // Création d'un projet d'article — réservé aux administrateurs.
 export async function createArticle(formData: FormData) {
   const viewer = await requireViewer();
-  if (!isAdmin(viewer.role as "journaliste" | "admin" | "redac_chef")) throw new Error("Réservé aux administrateurs.");
+  if (!isAdmin(viewer.role as Role)) throw new Error("Réservé aux administrateurs.");
 
   const title = String(formData.get("title") || "").trim();
   if (!title) throw new Error("Le titre est requis.");
@@ -57,6 +64,7 @@ export async function createArticle(formData: FormData) {
     extraInfo: String(formData.get("extraInfo") || "").trim(),
     forPublication: String(formData.get("forPublication")) === "oui",
     grade: String(formData.get("grade") || "Journaliste"),
+    priority: clampPriority(formData.get("priority")),
     mainJournalistId,
     secondJournalistId,
     status: hasPreassigned ? "en_cours" : "disponible",
@@ -64,6 +72,59 @@ export async function createArticle(formData: FormData) {
     createdBy: viewer.robloxId,
     createdAt: now,
   });
+
+  revalidatePath("/admin");
+  revalidatePath("/articles");
+}
+
+// Un journaliste (ou une personne avec le droit de regard) propose une
+// idée d'article. Elle reste en statut "proposition", invisible des
+// autres, jusqu'à validation par un administrateur.
+export async function proposeArticle(formData: FormData) {
+  const viewer = await requireViewer();
+  if (isBlockedByAdmin(viewer)) throw new Error("Votre compte est gelé par un administrateur.");
+
+  const title = String(formData.get("title") || "").trim();
+  if (!title) throw new Error("Le titre est requis.");
+
+  const db = getDb();
+  const now = new Date().toISOString();
+  await db.insert(schema.articles).values({
+    id: randomUUID(),
+    title,
+    mainSubject: String(formData.get("mainSubject") || "").trim(),
+    secondSubject: String(formData.get("secondSubject") || "").trim(),
+    extraInfo: String(formData.get("extraInfo") || "").trim(),
+    forPublication: String(formData.get("forPublication")) === "oui",
+    status: "proposition",
+    content: "",
+    createdBy: viewer.robloxId,
+    createdAt: now,
+  });
+
+  revalidatePath("/articles");
+  revalidatePath("/admin");
+}
+
+// Un administrateur valide une proposition : elle devient un projet
+// disponible, avec le grade requis et le niveau d'importance qu'il
+// choisit à ce moment-là.
+export async function approveProposal(formData: FormData) {
+  await requireAdmin();
+  const articleId = String(formData.get("articleId"));
+
+  const db = getDb();
+  const [article] = await db.select().from(schema.articles).where(eq(schema.articles.id, articleId)).limit(1);
+  if (!article || article.status !== "proposition") throw new Error("Cette proposition n'existe plus.");
+
+  await db
+    .update(schema.articles)
+    .set({
+      status: "disponible",
+      grade: String(formData.get("grade") || "Journaliste"),
+      priority: clampPriority(formData.get("priority")),
+    })
+    .where(eq(schema.articles.id, articleId));
 
   revalidatePath("/admin");
   revalidatePath("/articles");
@@ -373,10 +434,10 @@ export async function validateArticle(formData: FormData) {
     });
   }
 
-  await db.update(schema.articles).set({ status: "valide" }).where(eq(schema.articles.id, articleId));
+  const now = new Date().toISOString();
+  await db.update(schema.articles).set({ status: "valide", validatedAt: now }).where(eq(schema.articles.id, articleId));
 
   const participantIds = [article.mainJournalistId, article.secondJournalistId].filter(Boolean) as string[];
-  const now = new Date().toISOString();
   for (const jid of participantIds) {
     const [j] = await db.select().from(schema.users).where(eq(schema.users.robloxId, jid)).limit(1);
     if (!j) continue;
@@ -432,6 +493,8 @@ export async function deleteArticle(formData: FormData) {
 
   await db.delete(schema.articleComments).where(eq(schema.articleComments.articleId, articleId));
   await db.delete(schema.articleFiles).where(eq(schema.articleFiles.articleId, articleId));
+  await db.delete(schema.articleLikes).where(eq(schema.articleLikes.articleId, articleId));
+  await db.delete(schema.articleReaderComments).where(eq(schema.articleReaderComments.articleId, articleId));
   await db.delete(schema.articles).where(eq(schema.articles.id, articleId));
   await deleteArticleUploads(articleId);
 
@@ -505,4 +568,59 @@ export async function archiveArticle(formData: FormData) {
     .where(eq(schema.articles.id, articleId));
 
   revalidatePath("/admin");
+}
+
+// "J'aime" / retire son "j'aime" sur un article publié (validé, pas
+// encore archivé). Accessible à tout le monde de connecté.
+export async function toggleArticleLike(formData: FormData) {
+  const viewer = await requireViewer();
+  const articleId = String(formData.get("articleId"));
+
+  const db = getDb();
+  const [existing] = await db
+    .select()
+    .from(schema.articleLikes)
+    .where(and(eq(schema.articleLikes.articleId, articleId), eq(schema.articleLikes.userId, viewer.robloxId)))
+    .limit(1);
+
+  if (existing) {
+    await db.delete(schema.articleLikes).where(eq(schema.articleLikes.id, existing.id));
+  } else {
+    await db.insert(schema.articleLikes).values({
+      articleId,
+      userId: viewer.robloxId,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  revalidatePath("/publications");
+}
+
+// Ajoute un commentaire de lecture sur un article publié.
+export async function addReaderComment(formData: FormData) {
+  const viewer = await requireViewer();
+  const articleId = String(formData.get("articleId"));
+  const text = String(formData.get("text") || "").trim();
+  if (!text) throw new Error("Le commentaire ne peut pas être vide.");
+
+  const db = getDb();
+  await db.insert(schema.articleReaderComments).values({
+    articleId,
+    userId: viewer.robloxId,
+    text,
+    createdAt: new Date().toISOString(),
+  });
+
+  revalidatePath("/publications");
+}
+
+// Retire un commentaire de lecture — modération réservée aux administrateurs.
+export async function deleteReaderComment(formData: FormData) {
+  await requireAdmin();
+  const id = parseInt(String(formData.get("id")), 10);
+
+  const db = getDb();
+  await db.delete(schema.articleReaderComments).where(eq(schema.articleReaderComments.id, id));
+
+  revalidatePath("/publications");
 }

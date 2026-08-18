@@ -3,8 +3,8 @@ import { redirect } from "next/navigation";
 import { getDb, schema } from "@/db";
 import { getCurrentUser } from "@/lib/session";
 import { Shell } from "@/components/Shell";
-import { ACTIVE_STATUSES, isAdmin, isBlockedByAdmin, statusLabels, type Role } from "@/lib/permissions";
-import { takeArticle, requestCancel, deleteArticle, requestSecondSlot } from "@/actions/articles";
+import { ACTIVE_STATUSES, isAdmin, isBlockedByAdmin, priorityTag, statusLabels, type Role } from "@/lib/permissions";
+import { takeArticle, requestCancel, deleteArticle, requestSecondSlot, proposeArticle } from "@/actions/articles";
 import { ConfirmSubmitButton } from "@/components/ConfirmSubmitButton";
 
 export default async function ArticlesPage() {
@@ -12,7 +12,7 @@ export default async function ArticlesPage() {
   if (!user) redirect("/login");
 
   const db = getDb();
-  const [mine, available, openSecondSlotsRaw, journalists] = await Promise.all([
+  const [mine, available, openSecondSlotsRaw, myProposals, journalists] = await Promise.all([
     db
       .select()
       .from(schema.articles)
@@ -27,6 +27,10 @@ export default async function ArticlesPage() {
       .select()
       .from(schema.articles)
       .where(and(isNotNull(schema.articles.mainJournalistId), isNull(schema.articles.secondJournalistId))),
+    db
+      .select()
+      .from(schema.articles)
+      .where(and(eq(schema.articles.status, "proposition"), eq(schema.articles.createdBy, user.robloxId))),
     db.select().from(schema.users),
   ]);
 
@@ -185,45 +189,112 @@ export default async function ArticlesPage() {
         Projets disponibles
       </div>
       {available.length ? (
-        <div className="grid grid-auto">
-          {available.map((a) => (
-            <div key={a.id} className="card article-card">
-              <div className="art-tags">
-                <span className="tag tag-gold">Disponible</span>
-                {a.forPublication ? <span className="tag tag-green">Pour publication</span> : <span className="tag tag-gray">Interne</span>}
-              </div>
-              <div className="art-title">{a.title}</div>
-              <div className="art-meta">
-                {a.mainSubject}
-                {a.secondSubject ? ` · ${a.secondSubject}` : ""}
-              </div>
-              <div className="art-meta">Grade requis : {a.grade}</div>
-              {a.extraInfo ? <div className="art-meta">{a.extraInfo}</div> : null}
-              <div className="art-actions">
-                <form action={takeArticle}>
-                  <input type="hidden" name="articleId" value={a.id} />
-                  <button type="submit" className="btn btn-primary btn-sm" disabled={blockedFromTaking}>
-                    Prendre cet article
-                  </button>
-                </form>
-                {viewerIsAdmin ? (
-                  <form action={deleteArticle}>
+        <div className="grid grid-auto" style={{ marginBottom: 26 }}>
+          {available.map((a) => {
+            const pTag = priorityTag(a.priority);
+            return (
+              <div key={a.id} className="card article-card">
+                <div className="art-tags">
+                  <span className="tag tag-gold">Disponible</span>
+                  <span className={`tag ${pTag.cls}`}>{pTag.label}</span>
+                  {a.forPublication ? <span className="tag tag-green">Pour publication</span> : <span className="tag tag-gray">Interne</span>}
+                </div>
+                <div className="art-title">{a.title}</div>
+                <div className="art-meta">
+                  {a.mainSubject}
+                  {a.secondSubject ? ` · ${a.secondSubject}` : ""}
+                </div>
+                <div className="art-meta">Grade requis : {a.grade}</div>
+                {a.extraInfo ? <div className="art-meta">{a.extraInfo}</div> : null}
+                <div className="art-actions">
+                  <form action={takeArticle}>
                     <input type="hidden" name="articleId" value={a.id} />
-                    <ConfirmSubmitButton
-                      className="btn btn-danger btn-sm"
-                      message={`Supprimer définitivement le projet « ${a.title} » ? Cette action est irréversible.`}
-                    >
-                      Supprimer
-                    </ConfirmSubmitButton>
+                    <button type="submit" className="btn btn-primary btn-sm" disabled={blockedFromTaking}>
+                      Prendre cet article
+                    </button>
                   </form>
-                ) : null}
+                  {viewerIsAdmin ? (
+                    <form action={deleteArticle}>
+                      <input type="hidden" name="articleId" value={a.id} />
+                      <ConfirmSubmitButton
+                        className="btn btn-danger btn-sm"
+                        message={`Supprimer définitivement le projet « ${a.title} » ? Cette action est irréversible.`}
+                      >
+                        Supprimer
+                      </ConfirmSubmitButton>
+                    </form>
+                  ) : null}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
-        <div className="card empty-state">Aucun article disponible pour le moment. Revenez plus tard.</div>
+        <div className="card empty-state" style={{ marginBottom: 26 }}>
+          Aucun article disponible pour le moment. Revenez plus tard.
+        </div>
       )}
+
+      <div className="card-title" style={{ marginBottom: 10 }}>
+        Proposer une idée d&apos;article
+      </div>
+      <div className="card" style={{ marginBottom: 26 }}>
+        <p style={{ fontSize: "12.5px", color: "var(--text-faint)", marginBottom: 14 }}>
+          Vous pensez à un sujet qui mérite d&apos;être traité ? Proposez-le : un administrateur le validera avant qu&apos;il
+          n&apos;apparaisse dans les projets disponibles.
+        </p>
+        <form action={proposeArticle}>
+          <div className="grid grid-2">
+            <div className="field">
+              <label>Titre</label>
+              <input type="text" name="title" placeholder="Titre de l'article" required />
+            </div>
+            <div className="field">
+              <label>Sujet principal</label>
+              <input type="text" name="mainSubject" placeholder="Ex : Politique institutionnelle" />
+            </div>
+            <div className="field">
+              <label>Sujet secondaire</label>
+              <input type="text" name="secondSubject" placeholder="Optionnel" />
+            </div>
+            <div className="field">
+              <label>Destiné à la publication</label>
+              <div className="radio-row">
+                <label>
+                  <input type="radio" name="forPublication" value="oui" defaultChecked /> Oui
+                </label>
+                <label>
+                  <input type="radio" name="forPublication" value="non" /> Non
+                </label>
+              </div>
+            </div>
+          </div>
+          <div className="field">
+            <label>Informations complémentaires</label>
+            <textarea name="extraInfo" placeholder="Optionnel" style={{ minHeight: 60 }} />
+          </div>
+          <button type="submit" className="btn btn-primary btn-sm">
+            Envoyer la proposition
+          </button>
+        </form>
+
+        {myProposals.length ? (
+          <>
+            <div className="divider" />
+            <div className="ui-label" style={{ marginBottom: 8 }}>
+              Mes propositions en attente
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {myProposals.map((p) => (
+                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span className="tag tag-blue">En attente de validation</span>
+                  <span style={{ fontSize: 13, color: "var(--text-dim)" }}>{p.title}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : null}
+      </div>
     </Shell>
   );
 }

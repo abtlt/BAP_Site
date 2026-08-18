@@ -32,6 +32,10 @@ export function Sidebar({ user, activePage }: { user: UserRow; activePage: strin
           <span className="dot" />
           Articles disponibles
         </Link>
+        <Link href="/publications" className={`nav-link ${activePage === "publications" ? "active" : ""}`}>
+          <span className="dot" />
+          Articles publiés
+        </Link>
 
         {admin ? (
           <>

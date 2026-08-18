@@ -6,10 +6,12 @@ import { Shell } from "@/components/Shell";
 import {
   ACTIVE_STATUSES,
   GRADES,
+  PRIORITY_LEVELS,
   canAccessAdminPanel,
   isAdmin,
   isBlockedByAdmin,
   isRedacChef,
+  priorityTag,
   roleLabels,
   statusLabels,
   type Role,
@@ -24,6 +26,7 @@ import {
   deleteArticle,
   archiveArticle,
   forceRemoveJournalist,
+  approveProposal,
 } from "@/actions/articles";
 import { addAuthorizedUser, removeAuthorizedUser } from "@/actions/access";
 import { ConfirmSubmitButton } from "@/components/ConfirmSubmitButton";
@@ -31,6 +34,7 @@ import { ConfirmSubmitButton } from "@/components/ConfirmSubmitButton";
 const ALL_TABS = [
   { key: "overview", label: "Vue d'ensemble", adminOnly: false },
   { key: "new", label: "Nouveau projet", adminOnly: true },
+  { key: "propositions", label: "Propositions", adminOnly: true },
   { key: "validation", label: "Validation", adminOnly: true },
   { key: "cancellations", label: "Annulations", adminOnly: true },
   { key: "history", label: "Historique", adminOnly: true },
@@ -65,6 +69,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   const inProgress = allArticles.filter((a) => activeSet.has(a.status));
   const pendingValidation = allArticles.filter((a) => a.status === "en_validation");
   const pendingCancellations = allArticles.filter((a) => !!a.cancelRequestJournalistId);
+  const pendingProposals = allArticles.filter((a) => a.status === "proposition");
   const history = allArticles.filter((a) => a.status === "valide" && !a.archived);
   const archives = allArticles.filter((a) => a.status === "valide" && a.archived);
 
@@ -93,6 +98,11 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
         {TABS.map((t) => (
           <a key={t.key} href={`/admin?tab=${t.key}`} className={`tab-link ${activeTab === t.key ? "active" : ""}`}>
             {t.label}
+            {t.key === "propositions" && pendingProposals.length ? (
+              <span className="tag tag-blue" style={{ marginLeft: 4 }}>
+                {pendingProposals.length}
+              </span>
+            ) : null}
             {t.key === "validation" && pendingValidation.length ? (
               <span className="tag tag-red" style={{ marginLeft: 4 }}>
                 {pendingValidation.length}
@@ -222,6 +232,16 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
                 <input type="text" name="secondSubject" placeholder="Optionnel" />
               </div>
               <div className="field">
+                <label>Importance / urgence</label>
+                <select name="priority" defaultValue="1">
+                  {PRIORITY_LEVELS.map((lvl) => (
+                    <option key={lvl} value={lvl}>
+                      {priorityTag(lvl).label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
                 <label>Journaliste principal (optionnel)</label>
                 <select name="mainJournalistId" defaultValue="">
                   <option value="">— Laisser au choix des journalistes —</option>
@@ -263,6 +283,85 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
               Créer le projet
             </button>
           </form>
+        </div>
+      ) : null}
+
+      {activeTab === "propositions" && viewerIsAdmin ? (
+        <div className="card">
+          <div className="card-title">Propositions d&apos;articles en attente ({pendingProposals.length})</div>
+          {pendingProposals.length ? (
+            pendingProposals.map((a) => (
+              <div key={a.id} className="card" style={{ background: "var(--panel-2)", marginBottom: 12 }}>
+                <div className="art-title">{a.title}</div>
+                <div className="art-meta" style={{ marginBottom: 10 }}>
+                  Proposé par <b style={{ color: "var(--text-dim)" }}>{journalistName(a.createdBy)}</b> le {fmtDateShort(a.createdAt)}
+                </div>
+                <div className="art-meta">
+                  {a.mainSubject}
+                  {a.secondSubject ? ` · ${a.secondSubject}` : ""}
+                </div>
+                {a.extraInfo ? (
+                  <p
+                    style={{
+                      fontSize: 13,
+                      color: "var(--text-dim)",
+                      whiteSpace: "pre-wrap",
+                      background: "var(--panel)",
+                      padding: "10px 12px",
+                      borderRadius: 8,
+                      border: "1px solid var(--border)",
+                      marginTop: 10,
+                    }}
+                  >
+                    {a.extraInfo}
+                  </p>
+                ) : null}
+                <div className="art-meta" style={{ marginTop: 6 }}>
+                  Destiné à la publication : {a.forPublication ? "Oui" : "Non"}
+                </div>
+                <form action={approveProposal} style={{ marginTop: 12 }}>
+                  <input type="hidden" name="articleId" value={a.id} />
+                  <div className="grid grid-2">
+                    <div className="field">
+                      <label>Grade requis</label>
+                      <select name="grade" defaultValue="Journaliste">
+                        {GRADES.map((g) => (
+                          <option key={g}>{g}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label>Importance / urgence</label>
+                      <select name="priority" defaultValue="1">
+                        {PRIORITY_LEVELS.map((lvl) => (
+                          <option key={lvl} value={lvl}>
+                            {priorityTag(lvl).label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button type="submit" className="btn btn-primary btn-sm">
+                      ✓ Valider et publier
+                    </button>
+                  </div>
+                </form>
+                <form style={{ marginTop: 8 }}>
+                  <input type="hidden" name="articleId" value={a.id} />
+                  <ConfirmSubmitButton
+                    formAction={deleteArticle}
+                    className="btn btn-danger btn-sm"
+                    message={`Rejeter et supprimer la proposition « ${a.title} » ?`}
+                  >
+                    Rejeter
+                  </ConfirmSubmitButton>
+                </form>
+              </div>
+            ))
+          ) : (
+            <div className="empty-state">Aucune proposition en attente.</div>
+          )}
         </div>
       ) : null}
 

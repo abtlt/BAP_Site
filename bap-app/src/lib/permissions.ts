@@ -38,12 +38,24 @@ export const roleLabels: Record<Role, string> = {
 };
 
 export const statusLabels: Record<string, { label: string; cls: string }> = {
+  proposition: { label: "Proposition", cls: "tag-blue" },
   disponible: { label: "Disponible", cls: "tag-gold" },
   en_cours: { label: "En rédaction", cls: "tag-orange" },
   en_validation: { label: "En validation", cls: "tag-gray" },
   a_corriger: { label: "À corriger", cls: "tag-red" },
   valide: { label: "Validé", cls: "tag-green" },
 };
+
+// Étiquette d'importance/urgence d'un article disponible : 1 (vert,
+// normal), 2 (orange, à traiter bientôt), 3 (rouge, urgent).
+export const PRIORITY_LEVELS = [1, 2, 3] as const;
+export type PriorityLevel = (typeof PRIORITY_LEVELS)[number];
+
+export function priorityTag(level: number): { label: string; cls: string } {
+  if (level >= 3) return { label: "Urgent — Niveau 3", cls: "tag-red" };
+  if (level === 2) return { label: "À traiter bientôt — Niveau 2", cls: "tag-orange" };
+  return { label: "Normal — Niveau 1", cls: "tag-green" };
+}
 
 export const GRADES = [
   "Analyste",

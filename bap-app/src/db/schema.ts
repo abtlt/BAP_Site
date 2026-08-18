@@ -61,15 +61,21 @@ export const articles = sqliteTable("articles", {
   forPublication: integer("for_publication", { mode: "boolean" }).notNull().default(true),
   grade: text("grade").notNull().default("Journaliste"),
 
+  // Importance / urgence de l'article — 1 (vert, normal), 2 (orange,
+  // à traiter bientôt), 3 (rouge, urgent pour la prochaine édition).
+  priority: integer("priority").notNull().default(1),
+
   mainJournalistId: text("main_journalist_id"),
   secondJournalistId: text("second_journalist_id"),
 
-  // 'disponible' | 'en_cours' | 'en_validation' | 'a_corriger' | 'valide'
+  // 'proposition' | 'disponible' | 'en_cours' | 'en_validation' | 'a_corriger' | 'valide'
   status: text("status").notNull().default("disponible"),
   content: text("content").notNull().default(""),
 
   createdBy: text("created_by").notNull(),
   createdAt: text("created_at").notNull(),
+  // Renseigné au moment de la validation par un administrateur.
+  validatedAt: text("validated_at"),
 
   // Demande d'annulation en attente (une seule à la fois, comme dans le
   // prototype). null si aucune demande en cours.
@@ -121,5 +127,24 @@ export const historyLogs = sqliteTable("history_logs", {
   adminName: text("admin_name").notNull(),
   action: text("action").notNull(),
   detail: text("detail").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+// "J'aime" sur un article validé (fil de publications, avant archivage).
+export const articleLikes = sqliteTable("article_likes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  articleId: text("article_id").notNull(),
+  userId: text("user_id").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+// Commentaires de lecture sur un article validé — distincts des
+// commentaires de validation (articleComments) qui restent internes à
+// l'espace de rédaction.
+export const articleReaderComments = sqliteTable("article_reader_comments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  articleId: text("article_id").notNull(),
+  userId: text("user_id").notNull(),
+  text: text("text").notNull(),
   createdAt: text("created_at").notNull(),
 });
