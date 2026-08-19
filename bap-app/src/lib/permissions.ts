@@ -28,6 +28,13 @@ export function isBlockedByAdmin(user: Pick<UserRow, "adminFreezeActive">): bool
   return !!user.adminFreezeActive;
 }
 
+// Immunité de deadline : automatique pour le rôle "supervision" (droit de
+// regard), ou accordée manuellement par le rédacteur en chef à n'importe
+// qui via le flag deadlineImmune.
+export function isImmuneFromDeadline(user: Pick<UserRow, "role" | "deadlineImmune">): boolean {
+  return user.role === "supervision" || !!user.deadlineImmune;
+}
+
 export const ACTIVE_STATUSES = ["en_cours", "en_validation", "a_corriger"] as const;
 
 export const roleLabels: Record<Role, string> = {
@@ -56,6 +63,17 @@ export function priorityTag(level: number): { label: string; cls: string } {
   if (level === 2) return { label: "À traiter bientôt — Niveau 2", cls: "tag-orange" };
   return { label: "Normal — Niveau 1", cls: "tag-green" };
 }
+
+// Couleurs disponibles pour le titre personnalisé d'un profil — mêmes
+// teintes que le système d'étiquettes (.tag-{couleur}) déjà en place.
+export const TITLE_COLORS = [
+  { value: "gold", label: "Or" },
+  { value: "green", label: "Vert" },
+  { value: "red", label: "Rouge" },
+  { value: "blue", label: "Bleu" },
+  { value: "orange", label: "Orange" },
+  { value: "gray", label: "Gris" },
+] as const;
 
 export const GRADES = [
   "Analyste",

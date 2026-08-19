@@ -30,7 +30,7 @@ export function DeadlineRing({
         <div>
           <span className="tag tag-blue">Immunisé</span>
           <p style={{ color: "var(--text-dim)", fontSize: 13, marginTop: 8 }}>
-            Ce compte a le droit de regard : il n&apos;est pas soumis à la deadline de rédaction.
+            Ce compte est immunisé, il n&apos;est pas soumis à la deadline de rédaction.
           </p>
         </div>
       </div>

@@ -2,13 +2,28 @@ import { desc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { Shell } from "@/components/Shell";
 import { DeadlineRing } from "@/components/DeadlineRing";
+import { ServiceTimer } from "@/components/ServiceTimer";
 import { deadlineInfo, fmtDate, fmtDateShort, seniority, lastActivityLabel } from "@/lib/dates";
-import { GRADES, isAdmin, isBlockedByAdmin, isRedacChef, roleLabels, type Role, type UserRow } from "@/lib/permissions";
+import {
+  GRADES,
+  TITLE_COLORS,
+  isAdmin,
+  isBlockedByAdmin,
+  isImmuneFromDeadline,
+  isRedacChef,
+  roleLabels,
+  type Role,
+  type UserRow,
+} from "@/lib/permissions";
+import { levelInfo, XP_PER_ARTICLE } from "@/lib/xp";
 import {
   placeFreeze,
   updateAdminInfo,
   creditBonusDays,
   removeDays,
+  creditXp,
+  removeXp,
+  toggleDeadlineImmunity,
   placeAdminFreeze,
   liftAdminFreeze,
   toggleAdminRole,
@@ -16,6 +31,7 @@ import {
   deleteHistoryLog,
   deleteFreezeEntry,
 } from "@/actions/journalists";
+import { startService } from "@/actions/service";
 import { ConfirmSubmitButton } from "@/components/ConfirmSubmitButton";
 
 export async function ProfileView({ viewer, target }: { viewer: UserRow; target: UserRow }) {
@@ -23,11 +39,13 @@ export async function ProfileView({ viewer, target }: { viewer: UserRow; target:
   const viewerRole = viewer.role as Role;
   const targetRole = target.role as Role;
   const viewerIsAdmin = isAdmin(viewerRole);
-  const isTargetImmune = targetRole === "supervision";
+  const isTargetImmune = isImmuneFromDeadline(target);
   const blocked = isBlockedByAdmin(target);
   const dInfo = deadlineInfo(target.deadlineDate);
   const roleClass = target.role === "redac_chef" ? "redac-chef" : target.role;
   const displayName = `${target.rpFirstName} ${target.rpLastName}`.trim() || target.robloxUsername;
+  const lvl = levelInfo(target.xp);
+  const totalServiceHours = (target.totalServiceSeconds / 3600).toFixed(1).replace(".", ",");
 
   const db = getDb();
   const freezeEntries = await db
@@ -86,89 +104,120 @@ export async function ProfileView({ viewer, target }: { viewer: UserRow; target:
             <div className="profile-meta">Nom Roblox : @{target.robloxUsername}</div>
             <div className="profile-meta">Grade : {target.grade}</div>
           </div>
+          {target.customTitle ? (
+            <span className={`tag tag-${target.customTitleColor}`} style={{ marginLeft: "auto", fontSize: 13, padding: "7px 16px" }}>
+              {target.customTitle}
+            </span>
+          ) : null}
         </div>
       </div>
 
-      <div className="grid grid-2" style={{ marginTop: 16 }}>
-        <div className="card">
-          <div className="card-title">Deadline actuelle</div>
-          {isTargetImmune ? (
-            <DeadlineRing remaining={0} isGreen={true} immune />
-          ) : (
-            <>
-              <DeadlineRing remaining={dInfo.remaining} isGreen={dInfo.isGreen} />
-              <div className="divider" />
-              <div className="ui-label" style={{ marginBottom: 8 }}>
-                Jours de freeze disponibles : <b style={{ color: "var(--gold-light)" }}>{target.freezeDays}</b>
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-title">Niveau &amp; expérience</div>
+        <div className="xp-card">
+          <div className="xp-head">
+            <div className="xp-level">
+              <div className="xp-level-badge">{lvl.level}</div>
+              <div>
+                <div className="xp-level-label">Niveau {lvl.level}</div>
+                <div className="xp-amount">
+                  {lvl.xpIntoLevel} / {lvl.xpForNextLevel} xp jusqu&apos;au niveau {lvl.level + 1}
+                </div>
               </div>
-              {isOwn ? (
-                <form action={placeFreeze} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <input
-                    type="number"
-                    name="amount"
-                    min={1}
-                    max={target.freezeDays}
-                    defaultValue={1}
-                    disabled={target.freezeDays < 1 || blocked}
-                    style={{
-                      width: 70,
-                      background: "var(--panel-2)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 8,
-                      padding: "8px 10px",
-                      color: "var(--text)",
-                    }}
-                  />
-                  <button type="submit" className="btn btn-primary btn-sm" disabled={target.freezeDays < 1 || blocked}>
-                    Placer un freeze
-                  </button>
-                </form>
-              ) : (
-                <p style={{ fontSize: 12, color: "var(--text-faint)" }}>Seul le journaliste concerné peut placer ses jours de freeze.</p>
-              )}
-              {isOwn ? (
-                <p style={{ fontSize: "11.5px", color: "var(--text-faint)", marginTop: 8 }}>
-                  {blocked ? "Indisponible pendant un freeze administrateur." : "Un freeze met en pause votre deadline pour le nombre de jours choisi."}
-                </p>
-              ) : null}
-              {freezeEntries.length ? (
-                <>
-                  <div className="divider" />
-                  <div className="ui-label" style={{ marginBottom: 6 }}>
-                    Freeze programmés
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {freezeEntries.map((f) => (
-                      <span key={f.id} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                        <span className="tag tag-gray">
-                          {f.days} j — {fmtDateShort(f.placedAt)}
+            </div>
+            <span className="tag tag-gold">{lvl.percent}%</span>
+          </div>
+          <div className="xp-bar-track">
+            <div className="xp-bar-fill" style={{ width: `${lvl.percent}%` }} />
+          </div>
+          <p style={{ fontSize: 11, color: "var(--text-faint)", margin: 0 }}>
+            {target.xp} xp au total — chaque article validé rapporte {XP_PER_ARTICLE} xp.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-2 grid-2-equal" style={{ marginTop: 16 }}>
+        <div className="card" style={{ display: "flex", flexDirection: "column" }}>
+          <div className="card-title">Deadline actuelle</div>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+            {isTargetImmune ? (
+              <DeadlineRing remaining={0} isGreen={true} immune />
+            ) : (
+              <>
+                <DeadlineRing remaining={dInfo.remaining} isGreen={dInfo.isGreen} />
+                <div className="divider" />
+                <div className="ui-label" style={{ marginBottom: 8 }}>
+                  Jours de freeze disponibles : <b style={{ color: "var(--gold-light)" }}>{target.freezeDays}</b>
+                </div>
+                {isOwn ? (
+                  <form action={placeFreeze} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      type="number"
+                      name="amount"
+                      min={1}
+                      max={target.freezeDays}
+                      defaultValue={1}
+                      disabled={target.freezeDays < 1 || blocked}
+                      style={{
+                        width: 70,
+                        background: "var(--panel-2)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 8,
+                        padding: "8px 10px",
+                        color: "var(--text)",
+                      }}
+                    />
+                    <button type="submit" className="btn btn-primary btn-sm" disabled={target.freezeDays < 1 || blocked}>
+                      Placer un freeze
+                    </button>
+                  </form>
+                ) : (
+                  <p style={{ fontSize: 12, color: "var(--text-faint)" }}>Seul le journaliste concerné peut placer ses jours de freeze.</p>
+                )}
+                {isOwn ? (
+                  <p style={{ fontSize: "11.5px", color: "var(--text-faint)", marginTop: 8 }}>
+                    {blocked ? "Indisponible pendant un freeze administrateur." : "Un freeze met en pause votre deadline pour le nombre de jours choisi."}
+                  </p>
+                ) : null}
+                {freezeEntries.length ? (
+                  <>
+                    <div className="divider" />
+                    <div className="ui-label" style={{ marginBottom: 6 }}>
+                      Freeze programmés
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {freezeEntries.map((f) => (
+                        <span key={f.id} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                          <span className="tag tag-gray">
+                            {f.days} j — {fmtDateShort(f.placedAt)}
+                          </span>
+                          {viewerIsAdmin ? (
+                            <form action={deleteFreezeEntry} style={{ display: "inline" }}>
+                              <input type="hidden" name="id" value={f.id} />
+                              <input type="hidden" name="userId" value={target.robloxId} />
+                              <button
+                                type="submit"
+                                className="btn btn-ghost btn-sm"
+                                style={{ padding: "2px 6px", fontSize: 11 }}
+                                title="Retirer cette entrée de l'historique"
+                              >
+                                ✕
+                              </button>
+                            </form>
+                          ) : null}
                         </span>
-                        {viewerIsAdmin ? (
-                          <form action={deleteFreezeEntry} style={{ display: "inline" }}>
-                            <input type="hidden" name="id" value={f.id} />
-                            <input type="hidden" name="userId" value={target.robloxId} />
-                            <button
-                              type="submit"
-                              className="btn btn-ghost btn-sm"
-                              style={{ padding: "2px 6px", fontSize: 11 }}
-                              title="Retirer cette entrée de l'historique"
-                            >
-                              ✕
-                            </button>
-                          </form>
-                        ) : null}
-                      </span>
-                    ))}
-                  </div>
-                </>
-              ) : null}
-            </>
-          )}
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+              </>
+            )}
+          </div>
         </div>
 
-        <div className="card">
+        <div className="card" style={{ display: "flex", flexDirection: "column" }}>
           <div className="card-title">Statistiques</div>
-          <div className="grid grid-2">
+          <div className="grid grid-3" style={{ flex: 1, alignContent: "center" }}>
             <div className="stat-box">
               <div className="stat-label">Ancienneté</div>
               <div className="stat-value" style={{ fontSize: 16 }}>
@@ -193,8 +242,65 @@ export async function ProfileView({ viewer, target }: { viewer: UserRow; target:
               <div className="stat-value">{isTargetImmune ? "—" : target.freezeDays}</div>
               <div className="stat-sub">{isTargetImmune ? "non applicable" : "disponibles"}</div>
             </div>
+            <div className="stat-box">
+              <div className="stat-label">Heures de service</div>
+              <div className="stat-value" style={{ fontSize: 16 }}>
+                {totalServiceHours} h
+              </div>
+              <div className="stat-sub">cumulées</div>
+            </div>
+            <div className="stat-box">
+              <div className="stat-label">Prises de service</div>
+              <div className="stat-value">{target.totalServiceCount}</div>
+              <div className="stat-sub">au total</div>
+            </div>
           </div>
         </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-title">Service</div>
+        {isOwn ? (
+          target.serviceActive && target.serviceStartedAt ? (
+            <ServiceTimer startedAt={target.serviceStartedAt} serverId={target.serviceServerId} />
+          ) : (
+            <>
+              <form action={startService} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <input
+                  type="text"
+                  name="serverId"
+                  placeholder="ID du serveur Roblox"
+                  required
+                  disabled={blocked}
+                  style={{
+                    flex: 1,
+                    minWidth: 180,
+                    background: "var(--panel-2)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    padding: "9px 12px",
+                    color: "var(--text)",
+                    fontSize: 13,
+                  }}
+                />
+                <button type="submit" className="btn btn-primary btn-sm" disabled={blocked}>
+                  Prendre son service
+                </button>
+              </form>
+              <p style={{ fontSize: "11.5px", color: "var(--text-faint)", marginTop: 8 }}>
+                {blocked
+                  ? "Indisponible pendant un freeze administrateur."
+                  : "Renseignez l'ID du serveur Roblox sur lequel vous vous déployez : cela notifie l'équipe sur Discord et démarre le chronomètre de service."}
+              </p>
+            </>
+          )
+        ) : (
+          <p style={{ fontSize: 12, color: "var(--text-faint)" }}>
+            {target.serviceActive
+              ? `En service depuis le ${target.serviceStartedAt ? fmtDate(target.serviceStartedAt) : "?"} — serveur ${target.serviceServerId}.`
+              : "Aucun service en cours."}
+          </p>
+        )}
       </div>
 
       {viewerIsAdmin ? (
@@ -223,6 +329,26 @@ export async function ProfileView({ viewer, target }: { viewer: UserRow; target:
                 <label>Date d&apos;arrivée</label>
                 <input type="date" name="arrivalDate" defaultValue={target.arrivalDate.slice(0, 10)} />
               </div>
+              <div className="field">
+                <label>Titre personnalisé (optionnel)</label>
+                <input
+                  type="text"
+                  name="customTitle"
+                  placeholder="Ex : Vétéran du Bureau"
+                  maxLength={40}
+                  defaultValue={target.customTitle}
+                />
+              </div>
+              <div className="field">
+                <label>Couleur du titre</label>
+                <select name="customTitleColor" defaultValue={target.customTitleColor || "gold"}>
+                  {TITLE_COLORS.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             <button type="submit" className="btn btn-primary btn-sm">
               Enregistrer les modifications
@@ -238,7 +364,7 @@ export async function ProfileView({ viewer, target }: { viewer: UserRow; target:
             <div>
               {isTargetImmune ? (
                 <p style={{ fontSize: "11.5px", color: "var(--text-faint)" }}>
-                  Ce compte a le droit de regard : il n&apos;est pas soumis à la deadline, il n&apos;y a donc pas de jours à
+                  Ce compte est immunisé : il n&apos;est pas soumis à la deadline, il n&apos;y a donc pas de jours à
                   créditer ou retirer.
                 </p>
               ) : (
@@ -346,10 +472,68 @@ export async function ProfileView({ viewer, target }: { viewer: UserRow; target:
               )}
             </div>
           </div>
+
+          <div className="divider" />
+
+          <div className="ui-label" style={{ marginBottom: 8 }}>
+            Créditer de l&apos;xp
+          </div>
+          <p style={{ fontSize: "11.5px", color: "var(--text-faint)", marginBottom: 10 }}>
+            Ajoute manuellement de l&apos;expérience (ex : contribution ponctuelle ne passant pas par un article).
+          </p>
+          <form action={creditXp} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <input type="hidden" name="userId" value={target.robloxId} />
+            <input
+              type="number"
+              name="amount"
+              min={1}
+              defaultValue={50}
+              style={{ width: 80, background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", color: "var(--text)" }}
+            />
+            <span style={{ fontSize: "12.5px", color: "var(--text-faint)" }}>xp</span>
+            <input
+              type="text"
+              name="reason"
+              placeholder="Raison (optionnel)"
+              style={{ flex: 1, minWidth: 180, background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "9px 12px", color: "var(--text)", fontSize: 13 }}
+            />
+            <button type="submit" className="btn btn-primary btn-sm">
+              Créditer l&apos;xp
+            </button>
+          </form>
+
+          <div className="divider" />
+
+          <div className="ui-label" style={{ marginBottom: 8 }}>
+            Retirer de l&apos;xp
+          </div>
+          <p style={{ fontSize: "11.5px", color: "var(--text-faint)", marginBottom: 10 }}>
+            Retire manuellement de l&apos;expérience (ex : correction d&apos;un octroi erroné).
+          </p>
+          <form action={removeXp} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <input type="hidden" name="userId" value={target.robloxId} />
+            <input
+              type="number"
+              name="amount"
+              min={1}
+              defaultValue={50}
+              style={{ width: 80, background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", color: "var(--text)" }}
+            />
+            <span style={{ fontSize: "12.5px", color: "var(--text-faint)" }}>xp</span>
+            <input
+              type="text"
+              name="reason"
+              placeholder="Raison (optionnel)"
+              style={{ flex: 1, minWidth: 180, background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: 8, padding: "9px 12px", color: "var(--text)", fontSize: 13 }}
+            />
+            <button type="submit" className="btn btn-danger btn-sm">
+              Retirer l&apos;xp
+            </button>
+          </form>
         </div>
       ) : null}
 
-      {history.length ? (
+      {viewerIsAdmin && history.length ? (
         <div className="card" style={{ marginTop: 16 }}>
           <div className="card-title">Historique administratif</div>
           {history.map((h) => (
@@ -376,6 +560,43 @@ export async function ProfileView({ viewer, target }: { viewer: UserRow; target:
               <div>{h.detail}</div>
             </div>
           ))}
+        </div>
+      ) : null}
+
+      {isRedacChef(viewerRole) ? (
+        <div className="card" style={{ marginTop: 16, borderColor: "var(--blue)" }}>
+          <div className="card-title">Immunité de deadline — Rédacteur en chef uniquement</div>
+          {targetRole === "supervision" ? (
+            <p style={{ fontSize: "11.5px", color: "var(--text-faint)" }}>
+              Ce compte a le droit de regard : sa deadline est déjà immunisée automatiquement.
+            </p>
+          ) : target.deadlineImmune ? (
+            <>
+              <p style={{ fontSize: 13, color: "var(--text-dim)", marginBottom: 10 }}>
+                La deadline de {displayName} est actuellement immunisée manuellement.
+              </p>
+              <form action={toggleDeadlineImmunity}>
+                <input type="hidden" name="userId" value={target.robloxId} />
+                <input type="hidden" name="immune" value="false" />
+                <button type="submit" className="btn btn-danger btn-sm">
+                  Retirer l&apos;immunité
+                </button>
+              </form>
+            </>
+          ) : (
+            <>
+              <p style={{ fontSize: "11.5px", color: "var(--text-faint)", marginBottom: 10 }}>
+                Met en pause la pression de deadline pour {displayName}, sans changer son rôle ni son grade.
+              </p>
+              <form action={toggleDeadlineImmunity}>
+                <input type="hidden" name="userId" value={target.robloxId} />
+                <input type="hidden" name="immune" value="true" />
+                <button type="submit" className="btn btn-primary btn-sm">
+                  Immuniser la deadline
+                </button>
+              </form>
+            </>
+          )}
         </div>
       ) : null}
 

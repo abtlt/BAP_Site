@@ -7,6 +7,7 @@ import { getDb, schema } from "@/db";
 import { getCurrentUser } from "@/lib/session";
 import { isAdmin, isBlockedByAdmin, ACTIVE_STATUSES, type Role } from "@/lib/permissions";
 import { addDays, DEADLINE_CYCLE_DAYS } from "@/lib/dates";
+import { XP_PER_ARTICLE } from "@/lib/xp";
 import { saveUploadedFile, deleteArticleUploads, deleteUploadedFile } from "@/lib/uploads";
 
 async function requireViewer() {
@@ -448,6 +449,7 @@ export async function validateArticle(formData: FormData) {
         freezeDays: j.freezeDays + 5,
         deadlineDate: addDays(now, DEADLINE_CYCLE_DAYS).toISOString(),
         lastActivity: now,
+        xp: j.xp + XP_PER_ARTICLE,
       })
       .where(eq(schema.users.robloxId, jid));
   }
@@ -490,6 +492,16 @@ export async function deleteArticle(formData: FormData) {
   const db = getDb();
   const [article] = await db.select().from(schema.articles).where(eq(schema.articles.id, articleId)).limit(1);
   if (!article) throw new Error("Article introuvable.");
+
+  const readerComments = await db
+    .select()
+    .from(schema.articleReaderComments)
+    .where(eq(schema.articleReaderComments.articleId, articleId));
+  if (readerComments.length) {
+    await db.delete(schema.commentLikes).where(
+      inArray(schema.commentLikes.commentId, readerComments.map((c) => c.id))
+    );
+  }
 
   await db.delete(schema.articleComments).where(eq(schema.articleComments.articleId, articleId));
   await db.delete(schema.articleFiles).where(eq(schema.articleFiles.articleId, articleId));
@@ -596,7 +608,10 @@ export async function toggleArticleLike(formData: FormData) {
   revalidatePath("/publications");
 }
 
-// Ajoute un commentaire de lecture sur un article publié.
+// Ajoute un commentaire de lecture sur un article publié — ou une
+// réponse à un commentaire existant si parentCommentId est fourni (un
+// seul niveau d'imbrication : répondre à une réponse la rattache au
+// commentaire racine plutôt que de créer un niveau supplémentaire).
 export async function addReaderComment(formData: FormData) {
   const viewer = await requireViewer();
   const articleId = String(formData.get("articleId"));
@@ -604,23 +619,70 @@ export async function addReaderComment(formData: FormData) {
   if (!text) throw new Error("Le commentaire ne peut pas être vide.");
 
   const db = getDb();
+  const rawParent = formData.get("parentCommentId");
+  let parentCommentId: number | null = rawParent ? parseInt(String(rawParent), 10) : null;
+  if (parentCommentId) {
+    const [parent] = await db
+      .select()
+      .from(schema.articleReaderComments)
+      .where(eq(schema.articleReaderComments.id, parentCommentId))
+      .limit(1);
+    parentCommentId = parent ? parent.parentCommentId ?? parent.id : null;
+  }
+
   await db.insert(schema.articleReaderComments).values({
     articleId,
     userId: viewer.robloxId,
     text,
     createdAt: new Date().toISOString(),
+    parentCommentId,
   });
 
   revalidatePath("/publications");
 }
 
-// Retire un commentaire de lecture — modération réservée aux administrateurs.
+// Retire un commentaire de lecture — modération réservée aux
+// administrateurs. Si c'est un commentaire racine, ses réponses (et les
+// "j'aime" de tout ce qui est supprimé) sont retirés avec lui.
 export async function deleteReaderComment(formData: FormData) {
   await requireAdmin();
   const id = parseInt(String(formData.get("id")), 10);
 
   const db = getDb();
+  const replies = await db
+    .select()
+    .from(schema.articleReaderComments)
+    .where(eq(schema.articleReaderComments.parentCommentId, id));
+  const allIds = [id, ...replies.map((r) => r.id)];
+
+  await db.delete(schema.commentLikes).where(inArray(schema.commentLikes.commentId, allIds));
+  await db.delete(schema.articleReaderComments).where(eq(schema.articleReaderComments.parentCommentId, id));
   await db.delete(schema.articleReaderComments).where(eq(schema.articleReaderComments.id, id));
+
+  revalidatePath("/publications");
+}
+
+// "J'aime" / retire son "j'aime" sur un commentaire de lecture.
+export async function toggleCommentLike(formData: FormData) {
+  const viewer = await requireViewer();
+  const commentId = parseInt(String(formData.get("commentId")), 10);
+
+  const db = getDb();
+  const [existing] = await db
+    .select()
+    .from(schema.commentLikes)
+    .where(and(eq(schema.commentLikes.commentId, commentId), eq(schema.commentLikes.userId, viewer.robloxId)))
+    .limit(1);
+
+  if (existing) {
+    await db.delete(schema.commentLikes).where(eq(schema.commentLikes.id, existing.id));
+  } else {
+    await db.insert(schema.commentLikes).values({
+      commentId,
+      userId: viewer.robloxId,
+      createdAt: new Date().toISOString(),
+    });
+  }
 
   revalidatePath("/publications");
 }

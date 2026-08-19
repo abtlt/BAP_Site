@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getDb, schema } from "@/db";
 import { getCurrentUser } from "@/lib/session";
-import { isAdmin, isRedacChef, isBlockedByAdmin } from "@/lib/permissions";
+import { isAdmin, isRedacChef, isBlockedByAdmin, TITLE_COLORS } from "@/lib/permissions";
 import { addDays } from "@/lib/dates";
 
 async function requireViewer() {
@@ -63,11 +63,16 @@ export async function updateAdminInfo(formData: FormData) {
   const rpLastName = String(formData.get("rpLastName") || "").trim();
   const grade = String(formData.get("grade") || "");
   const arrivalDate = String(formData.get("arrivalDate") || "");
+  const customTitle = String(formData.get("customTitle") || "").trim().slice(0, 40);
+  const rawColor = String(formData.get("customTitleColor") || "gold");
+  const customTitleColor = (TITLE_COLORS as readonly { value: string }[]).some((c) => c.value === rawColor)
+    ? rawColor
+    : "gold";
 
   const db = getDb();
   await db
     .update(schema.users)
-    .set({ rpFirstName, rpLastName, grade, arrivalDate })
+    .set({ rpFirstName, rpLastName, grade, arrivalDate, customTitle, customTitleColor })
     .where(eq(schema.users.robloxId, userId));
 
   revalidatePath(`/profil/${userId}`);
@@ -99,6 +104,71 @@ export async function creditBonusDays(formData: FormData) {
     adminName: viewerName(viewer),
     action: "Jours crédités",
     detail: `+${amount} jour(s) sur la deadline${reason ? " — " + reason : ""}.`,
+    createdAt: new Date().toISOString(),
+  });
+
+  revalidatePath(`/profil/${userId}`);
+  revalidatePath("/admin");
+}
+
+// Crédite manuellement de l'xp à un journaliste (montant au choix) —
+// réservé aux administrateurs. Utile pour récompenser une contribution
+// qui ne passe pas par la validation d'un article (ex : aide ponctuelle,
+// événement RP, correction d'une erreur du système).
+export async function creditXp(formData: FormData) {
+  const viewer = await requireViewer();
+  if (!isAdmin(viewer.role as "journaliste" | "admin" | "redac_chef")) throw new Error("Réservé aux administrateurs.");
+
+  const userId = String(formData.get("userId"));
+  const amount = Math.max(1, parseInt(String(formData.get("amount") || "1"), 10));
+  const reason = String(formData.get("reason") || "").trim();
+
+  const db = getDb();
+  const [user] = await db.select().from(schema.users).where(eq(schema.users.robloxId, userId)).limit(1);
+  if (!user) throw new Error("Journaliste introuvable.");
+
+  await db
+    .update(schema.users)
+    .set({ xp: user.xp + amount })
+    .where(eq(schema.users.robloxId, userId));
+
+  await db.insert(schema.historyLogs).values({
+    userId,
+    adminName: viewerName(viewer),
+    action: "XP crédité",
+    detail: `+${amount} xp${reason ? " — " + reason : ""}.`,
+    createdAt: new Date().toISOString(),
+  });
+
+  revalidatePath(`/profil/${userId}`);
+  revalidatePath("/admin");
+}
+
+// Retire manuellement de l'xp à un journaliste — réservé aux
+// administrateurs. Symétrique de creditXp (ex : correction d'un octroi
+// erroné, sanction).
+export async function removeXp(formData: FormData) {
+  const viewer = await requireViewer();
+  if (!isAdmin(viewer.role as "journaliste" | "admin" | "redac_chef")) throw new Error("Réservé aux administrateurs.");
+
+  const userId = String(formData.get("userId"));
+  const amount = Math.max(1, parseInt(String(formData.get("amount") || "1"), 10));
+  const reason = String(formData.get("reason") || "").trim();
+
+  const db = getDb();
+  const [user] = await db.select().from(schema.users).where(eq(schema.users.robloxId, userId)).limit(1);
+  if (!user) throw new Error("Journaliste introuvable.");
+
+  await db
+    .update(schema.users)
+    .set({ xp: Math.max(0, user.xp - amount) })
+    .where(eq(schema.users.robloxId, userId));
+
+  await db.insert(schema.historyLogs).values({
+    userId,
+    adminName: viewerName(viewer),
+    action: "XP retiré",
+    detail: `-${amount} xp${reason ? " — " + reason : ""}.`,
     createdAt: new Date().toISOString(),
   });
 
@@ -235,6 +305,36 @@ export async function deleteFreezeEntry(formData: FormData) {
 
   revalidatePath(`/profil/${userId}`);
   revalidatePath("/profil");
+}
+
+// Immunise (ou retire l'immunité de) la deadline de n'importe qui —
+// réservé au rédacteur en chef. Indépendant du rôle : contrairement au
+// droit de regard, ça ne change rien d'autre que la pression de deadline.
+export async function toggleDeadlineImmunity(formData: FormData) {
+  const viewer = await requireViewer();
+  if (!isRedacChef(viewer.role as "journaliste" | "admin" | "redac_chef" | "supervision")) {
+    throw new Error("Seul le rédacteur en chef peut immuniser une deadline.");
+  }
+
+  const userId = String(formData.get("userId"));
+  const immune = String(formData.get("immune")) === "true";
+
+  const db = getDb();
+  const [target] = await db.select().from(schema.users).where(eq(schema.users.robloxId, userId)).limit(1);
+  if (!target) throw new Error("Utilisateur introuvable.");
+
+  await db.update(schema.users).set({ deadlineImmune: immune }).where(eq(schema.users.robloxId, userId));
+
+  await db.insert(schema.historyLogs).values({
+    userId,
+    adminName: viewerName(viewer),
+    action: immune ? "Deadline immunisée" : "Immunité de deadline retirée",
+    detail: immune ? "Deadline immunisée manuellement par le rédacteur en chef." : "Retour à une deadline normale.",
+    createdAt: new Date().toISOString(),
+  });
+
+  revalidatePath(`/profil/${userId}`);
+  revalidatePath("/admin");
 }
 
 // Promotion / rétrogradation administrateur — réservé au rédacteur en chef.

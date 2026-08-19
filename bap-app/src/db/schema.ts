@@ -15,15 +15,44 @@ export const users = sqliteTable("users", {
   rpLastName: text("rp_last_name").notNull().default(""),
   grade: text("grade").notNull().default("Analyste"),
 
+  // Titre personnalisé affiché sur la fiche profil (à droite de la carte
+  // photo/nom/grade) — défini par un administrateur, avec une couleur au
+  // choix parmi celles du système d'étiquettes déjà existant.
+  customTitle: text("custom_title").notNull().default(""),
+  customTitleColor: text("custom_title_color").notNull().default("gold"),
+
   // 'journaliste' | 'admin' | 'redac_chef' | 'supervision' (droit de regard)
   role: text("role").notNull().default("journaliste"),
+
+  // Immunité de deadline accordée manuellement par le rédacteur en chef à
+  // n'importe qui (indépendamment du rôle) — le rôle "supervision" reste
+  // par ailleurs toujours immunisé automatiquement.
+  deadlineImmune: integer("deadline_immune", { mode: "boolean" }).notNull().default(false),
 
   arrivalDate: text("arrival_date").notNull(),
   lastActivity: text("last_activity").notNull(),
   articlesCount: integer("articles_count").notNull().default(0),
 
+  // Expérience cumulée (75 xp par article validé) — voir lib/xp.ts pour
+  // le calcul du niveau / de la progression à partir de ce total.
+  xp: integer("xp").notNull().default(0),
+
   freezeDays: integer("freeze_days").notNull().default(0),
   deadlineDate: text("deadline_date").notNull(),
+
+  // Service RP en cours (déploiement sur un serveur Roblox). Un seul
+  // service actif à la fois par journaliste.
+  serviceActive: integer("service_active", { mode: "boolean" }).notNull().default(false),
+  serviceServerId: text("service_server_id").notNull().default(""),
+  serviceStartedAt: text("service_started_at"),
+  // Id du message Discord de prise de service — permet de faire référence
+  // à ce message depuis l'embed de fin de service (les webhooks Discord
+  // ne permettent pas de "répondre" nativement à un message).
+  serviceStartMessageId: text("service_start_message_id"),
+
+  // Statistiques cumulées de service, mises à jour à chaque fin de service.
+  totalServiceSeconds: integer("total_service_seconds").notNull().default(0),
+  totalServiceCount: integer("total_service_count").notNull().default(0),
 
   // Freeze administrateur : bloque totalement le compte tant qu'actif.
   adminFreezeActive: integer("admin_freeze_active", { mode: "boolean" }).notNull().default(false),
@@ -138,13 +167,37 @@ export const articleLikes = sqliteTable("article_likes", {
   createdAt: text("created_at").notNull(),
 });
 
+// Journal des services terminés (une ligne par service, horodatée) —
+// permet de calculer des statistiques par mois (et archivées) sans avoir
+// à réinitialiser destructivement des compteurs : "ce mois-ci" et les
+// mois précédents se déduisent simplement d'un filtre sur endedAt.
+export const serviceLogs = sqliteTable("service_logs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  serverId: text("server_id").notNull().default(""),
+  startedAt: text("started_at").notNull(),
+  endedAt: text("ended_at").notNull(),
+  durationSeconds: integer("duration_seconds").notNull().default(0),
+});
+
 // Commentaires de lecture sur un article validé — distincts des
 // commentaires de validation (articleComments) qui restent internes à
-// l'espace de rédaction.
+// l'espace de rédaction. parentCommentId permet une réponse (un seul
+// niveau d'imbrication : une réponse à une réponse est rattachée au
+// commentaire racine).
 export const articleReaderComments = sqliteTable("article_reader_comments", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   articleId: text("article_id").notNull(),
   userId: text("user_id").notNull(),
   text: text("text").notNull(),
+  createdAt: text("created_at").notNull(),
+  parentCommentId: integer("parent_comment_id"),
+});
+
+// "J'aime" sur un commentaire de lecture.
+export const commentLikes = sqliteTable("comment_likes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  commentId: integer("comment_id").notNull(),
+  userId: text("user_id").notNull(),
   createdAt: text("created_at").notNull(),
 });

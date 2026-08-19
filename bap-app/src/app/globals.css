@@ -200,6 +200,9 @@ a:hover { color: var(--gold-light); }
 
 .grid { display: grid; gap: 16px; }
 .grid-2 { grid-template-columns: 1fr 1fr; }
+/* Force les deux cartes d'une même rangée à occuper exactement la même
+   hauteur, quel que soit le contenu de chacune (ex : Deadline / Statistiques). */
+.grid-2-equal { align-items: stretch; }
 .grid-3 { grid-template-columns: repeat(3, 1fr); }
 .grid-auto { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
 
@@ -304,6 +307,78 @@ a:hover { color: var(--gold-light); }
 .stat-box .stat-label { font-size: 10.5px; text-transform: uppercase; color: var(--text-faint); letter-spacing: 0.06em; margin-bottom: 6px; }
 .stat-box .stat-value { font-size: 22px; font-weight: 700; color: var(--gold-light); }
 .stat-box .stat-sub { font-size: 11px; color: var(--text-faint); }
+
+/* ---- Barre de niveau / XP ---- */
+.xp-card { display: flex; flex-direction: column; gap: 10px; }
+.xp-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+.xp-level { display: flex; align-items: center; gap: 12px; }
+.xp-level-badge {
+  display: flex; align-items: center; justify-content: center;
+  width: 42px; height: 42px; border-radius: 50%;
+  background: rgba(225, 169, 111, 0.15); border: 2px solid var(--gold-dark);
+  color: var(--gold-light); font-weight: 700; font-size: 15px; flex-shrink: 0;
+}
+.xp-level-label { font-size: 13px; color: var(--text-dim); }
+.xp-amount { font-size: 12px; color: var(--text-faint); }
+.xp-bar-track { width: 100%; height: 10px; border-radius: 20px; background: var(--panel-3); overflow: hidden; }
+.xp-bar-fill { height: 100%; border-radius: 20px; background: linear-gradient(90deg, var(--gold-dark), var(--gold-light)); transition: width 0.6s ease; }
+
+/* ---- Service en cours ---- */
+.service-timer { font-size: 26px; font-weight: 700; color: var(--gold-light); font-variant-numeric: tabular-nums; }
+
+/* ---- Bouton "j'aime" (publications) ---- */
+.like-btn {
+  background: none;
+  border: none;
+  padding: 2px;
+  margin: 0;
+  cursor: pointer;
+  color: var(--red);
+  font-size: 22px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  transition: transform 0.15s ease;
+}
+.like-btn:hover { transform: scale(1.12); }
+
+/* ---- Organigramme ---- */
+.org-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 5px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px 12px;
+  color: var(--text);
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.org-card:hover { border-color: var(--gold-dark); transform: translateY(-2px); color: var(--text); }
+.org-card-avatar { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border); }
+.org-card-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.org-card-meta { font-size: 11.5px; color: var(--text-faint); }
+
+/* ---- Classement (leaderboard) ---- */
+.leaderboard-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  color: var(--text);
+  transition: border-color 0.15s ease;
+}
+.leaderboard-row:hover { border-color: var(--gold-dark); color: var(--text); }
+.leaderboard-rank { width: 24px; flex-shrink: 0; text-align: center; font-size: 13px; font-weight: 700; color: var(--text-faint); }
+.leaderboard-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.leaderboard-name { font-size: 13.5px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.leaderboard-meta { font-size: 11px; color: var(--text-faint); }
+.leaderboard-value { font-size: 13px; font-weight: 700; color: var(--gold-light); white-space: nowrap; flex-shrink: 0; }
 
 /* ---- Table ---- */
 table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }

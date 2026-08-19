@@ -2,13 +2,15 @@ import { eq } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
 import { getDb, schema } from "@/db";
 import { getCurrentUser } from "@/lib/session";
-import { canAccessAdminPanel, type Role } from "@/lib/permissions";
 import { ProfileView } from "@/components/ProfileView";
 
+// Ouvert à tout journaliste connecté (pas seulement aux administrateurs) :
+// on peut consulter la fiche de n'importe quel membre du Bureau, par
+// exemple depuis l'organigramme. Les sections d'administration restent
+// masquées automatiquement dans ProfileView pour un viewer non-admin.
 export default async function JournalistProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const viewer = await getCurrentUser();
   if (!viewer) redirect("/login");
-  if (!canAccessAdminPanel(viewer.role as Role)) redirect("/profil");
 
   const { id } = await params;
   const db = getDb();

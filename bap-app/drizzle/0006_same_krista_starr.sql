@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `deadline_immune` integer DEFAULT false NOT NULL;

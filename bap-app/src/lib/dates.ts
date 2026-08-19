@@ -46,6 +46,31 @@ export function lastActivityLabel(dateStr: string): string {
 export const DEADLINE_THRESHOLD_DAYS = 9;
 export const DEADLINE_CYCLE_DAYS = 30;
 
+// Clé "AAAA-MM" (mois calendaire, heure de Paris) utilisée pour
+// regrouper des événements horodatés par mois — sert de base aux
+// statistiques mensuelles/archivées sur la page /statistiques. On utilise
+// le fuseau Europe/Paris (et non UTC) pour que le basculement d'un mois
+// à l'autre ait bien lieu au 1er du mois à minuit, heure française.
+export function monthKey(d: Date | string): string {
+  const date = typeof d === "string" ? new Date(d) : d;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Paris",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(date);
+  const year = parts.find((p) => p.type === "year")!.value;
+  const month = parts.find((p) => p.type === "month")!.value;
+  return `${year}-${month}`;
+}
+
+// Libellé français lisible pour une clé "AAAA-MM" (ex: "Août 2026").
+export function monthLabel(key: string): string {
+  const [year, month] = key.split("-").map(Number);
+  const d = new Date(Date.UTC(year, month - 1, 15));
+  const label = d.toLocaleDateString("fr-FR", { month: "long", year: "numeric", timeZone: "Europe/Paris" });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 export function deadlineInfo(deadlineDate: string) {
   const remaining = daysBetween(new Date(), new Date(deadlineDate));
   const isGreen = remaining >= DEADLINE_THRESHOLD_DAYS;

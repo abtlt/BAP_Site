@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull, ne, or } from "drizzle-orm";
+import { and, eq, inArray, ne, or } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { getDb, schema } from "@/db";
 import { getCurrentUser } from "@/lib/session";
@@ -12,7 +12,7 @@ export default async function ArticlesPage() {
   if (!user) redirect("/login");
 
   const db = getDb();
-  const [mine, available, openSecondSlotsRaw, myProposals, journalists] = await Promise.all([
+  const [mine, available, activeElsewhereRaw, myProposals, journalists] = await Promise.all([
     db
       .select()
       .from(schema.articles)
@@ -23,10 +23,11 @@ export default async function ArticlesPage() {
         )
       ),
     db.select().from(schema.articles).where(eq(schema.articles.status, "disponible")),
-    db
-      .select()
-      .from(schema.articles)
-      .where(and(isNotNull(schema.articles.mainJournalistId), isNull(schema.articles.secondJournalistId))),
+    // Tous les articles en cours de traitement par d'autres journalistes,
+    // qu'ils cherchent ou non un journaliste secondaire — juste pour
+    // visibilité (le brouillon lui-même reste inaccessible ici) afin
+    // d'éviter qu'un sujet déjà en cours soit reproposé.
+    db.select().from(schema.articles).where(inArray(schema.articles.status, [...ACTIVE_STATUSES])),
     db
       .select()
       .from(schema.articles)
@@ -48,11 +49,11 @@ export default async function ArticlesPage() {
   const blockedFromTaking = !!myActiveArticle || isBlocked;
   const viewerIsAdmin = isAdmin(user.role as Role);
 
-  // Articles en cours cherchant un journaliste secondaire — uniquement
-  // proposés aux journalistes qui n'ont pas déjà un article actif, et
-  // qui ne sont pas déjà le journaliste principal de cet article.
-  const openSecondSlots = openSecondSlotsRaw.filter(
-    (a) => activeIds.has(a.status) && a.mainJournalistId !== user.robloxId
+  // Articles en cours de traitement par d'autres journalistes (le
+  // viewer n'y participe pas) — la demande de rejoindre en secondaire
+  // n'est proposée que si le poste est ouvert.
+  const otherActive = activeElsewhereRaw.filter(
+    (a) => a.mainJournalistId !== user.robloxId && a.secondJournalistId !== user.robloxId
   );
 
   return (
@@ -139,45 +140,56 @@ export default async function ArticlesPage() {
         </>
       ) : null}
 
-      {!myActiveArticle && openSecondSlots.length ? (
+      {otherActive.length ? (
         <>
           <div className="card-title" style={{ marginBottom: 10 }}>
-            Articles en cours cherchant un journaliste secondaire
+            Articles en cours de traitement
           </div>
           <div className="grid grid-auto" style={{ marginBottom: 26 }}>
-            {openSecondSlots.map((a) => {
+            {otherActive.map((a) => {
+              const st = statusLabels[a.status];
+              const slotOpen = !!a.mainJournalistId && !a.secondJournalistId;
               const hasPendingRequest = !!a.secondRequestJournalistId;
               const isMyOwnRequest = a.secondRequestJournalistId === user.robloxId;
               return (
                 <div key={a.id} className="card article-card">
                   <div className="art-tags">
-                    <span className="tag tag-orange">En cours</span>
+                    <span className={`tag ${st.cls}`}>{st.label}</span>
                     {a.forPublication ? <span className="tag tag-gold">Pour publication</span> : <span className="tag tag-gray">Interne</span>}
+                    {slotOpen ? <span className="tag tag-blue">Cherche un secondaire</span> : null}
                   </div>
                   <div className="art-title">{a.title}</div>
                   <div className="art-meta">
                     {a.mainSubject}
                     {a.secondSubject ? ` · ${a.secondSubject}` : ""}
                   </div>
-                  <div className="art-meta">Journaliste principal : {journalistName(a.mainJournalistId)}</div>
-                  <div className="art-actions">
-                    {isMyOwnRequest ? (
-                      <span style={{ fontSize: "11.5px", color: "var(--text-faint)", alignSelf: "center" }}>
-                        Demande envoyée, en attente de réponse du journaliste principal
-                      </span>
-                    ) : hasPendingRequest ? (
-                      <span style={{ fontSize: "11.5px", color: "var(--text-faint)", alignSelf: "center" }}>
-                        Une demande d&apos;un autre journaliste est déjà en attente
-                      </span>
-                    ) : (
-                      <form action={requestSecondSlot}>
-                        <input type="hidden" name="articleId" value={a.id} />
-                        <button type="submit" className="btn btn-primary btn-sm">
-                          Demander à devenir journaliste secondaire
-                        </button>
-                      </form>
-                    )}
+                  <div className="art-meta">
+                    Journaliste principal : {journalistName(a.mainJournalistId) || "—"}
+                    {a.secondJournalistId ? ` · Secondaire : ${journalistName(a.secondJournalistId)}` : ""}
                   </div>
+                  <p style={{ fontSize: "11.5px", color: "var(--text-faint)", marginTop: 4 }}>
+                    Brouillon non consultable — visible uniquement pour éviter les doublons.
+                  </p>
+                  {slotOpen && !myActiveArticle ? (
+                    <div className="art-actions">
+                      {isMyOwnRequest ? (
+                        <span style={{ fontSize: "11.5px", color: "var(--text-faint)", alignSelf: "center" }}>
+                          Demande envoyée, en attente de réponse du journaliste principal
+                        </span>
+                      ) : hasPendingRequest ? (
+                        <span style={{ fontSize: "11.5px", color: "var(--text-faint)", alignSelf: "center" }}>
+                          Une demande d&apos;un autre journaliste est déjà en attente
+                        </span>
+                      ) : (
+                        <form action={requestSecondSlot}>
+                          <input type="hidden" name="articleId" value={a.id} />
+                          <button type="submit" className="btn btn-primary btn-sm">
+                            Demander à devenir journaliste secondaire
+                          </button>
+                        </form>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               );
             })}

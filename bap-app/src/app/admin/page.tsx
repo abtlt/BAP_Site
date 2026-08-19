@@ -10,6 +10,7 @@ import {
   canAccessAdminPanel,
   isAdmin,
   isBlockedByAdmin,
+  isImmuneFromDeadline,
   isRedacChef,
   priorityTag,
   roleLabels,
@@ -582,7 +583,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
             <tbody>
               {journalists.map((j) => {
                 const jRole = j.role as Role;
-                const immune = jRole === "supervision";
+                const immune = isImmuneFromDeadline(j);
                 const dInfo = deadlineInfo(j.deadlineDate);
                 const blocked = isBlockedByAdmin(j);
                 const roleClass = j.role === "redac_chef" ? "redac-chef" : j.role;

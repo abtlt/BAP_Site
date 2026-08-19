@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `service_start_message_id` text;
